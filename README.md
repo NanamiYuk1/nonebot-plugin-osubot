@@ -206,3 +206,13 @@ osu-beatmap-preview --bid <bid> --fmt <png|gif|mp4> [--convert taiko|ctb|mania] 
 | `--gif-clip` / `--gif-clip-label` | 单屏连续 GIF / 带时间标签 |
 | `--gap <秒>` | 时间间隔 |
 | `--no-cache` | 跳过缓存 |
+
+---
+
+## 许可证
+
+本项目基于 [yaowan233/nonebot-plugin-osubot](https://github.com/yaowan233/nonebot-plugin-osubot)（同样为 **AGPL-3.0** 许可）修改而来，以 **GNU Affero General Public License v3.0（AGPL-3.0）** 开源。
+
+- 完整许可证文本见 [LICENSE](LICENSE)
+- 依据 AGPL-3.0 要求：使用、修改、分发本项目（包括以网络服务形式部署）时，须以相同许可证向使用者提供源代码
+- 谱面预览渲染核心 [osu-beatmap-preview](https://github.com/2710165659/osu-beatmap-preview) 及其 AstrBot 封装 [astrbot_plugin_osu_beatmap_preview](https://github.com/2710165659/astrbot_plugin_osu_beatmap_preview) 的许可证以各自仓库为准
