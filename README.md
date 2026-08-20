@@ -1,9 +1,3 @@
-<div align="center">
-  <img src="https://i.ibb.co/dwTj8q1R/qq.jpg" alt="qq Bot" width="300" />
-  <p> 扫码添加已部署的OsuBot
-  （该bot存在其他功能，若只需要该项目查询，可自行部署服务）</p>
-</div>
-
 # nonebot-plugin-osubot（个人修改版）
 
 > 本项目由 [yaowan233/nonebot-plugin-osubot](https://github.com/yaowan233/nonebot-plugin-osubot) 修改而来，
@@ -14,6 +8,12 @@
 > 二进制由 [astrbot_plugin_osu_beatmap_preview](https://github.com/2710165659/astrbot_plugin_osu_beatmap_preview) 提供（详见下文「预览渲染核心配置」）。
 
 ---
+
+<div align="center">
+  <img src="https://i.ibb.co/dwTj8q1R/qq.jpg" alt="qq Bot" width="300" />
+  <p> 扫码添加已部署的OsuBot
+  （该bot存在其他功能，若只需要该项目查询，可自行部署服务）</p>
+</div>
 
 ## 环境要求与依赖
 
