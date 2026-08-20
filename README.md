@@ -9,6 +9,8 @@
 
 ---
 
+## 扫码添加已部署的 OsuBot
+
 <div align="center">
   <img src="https://i.ibb.co/dwTj8q1R/qq.jpg" alt="qq Bot" width="300" />
   <p> 扫码添加已部署的OsuBot
@@ -34,6 +36,14 @@
 将本仓库 clone / 下载后，整个文件夹放入 NoneBot 项目的 `plugins/` 目录即可（本仓库即插件包本体，未打包为独立发行版）；随后按「.env 配置方法」填写配置并重启机器人。
 
 ---
+
+## /osuhelp 帮助详情
+
+<div align="center">
+  <img src="osufile/detail.png" alt="/osuhelp 帮助详情" width="600" />
+  <p> 发送 /osuhelp 查看完整指令帮助（图片随本仓库代码更新自动换图）
+  图片源文件为 osufile/detail.png，修改 osufile/help.html 后运行 osufile/gen_help_png.py 重新生成并提交即可</p>
+</div>
 
 ## 新增 / 改动的指令
 
