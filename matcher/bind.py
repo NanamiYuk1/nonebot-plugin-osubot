@@ -7,7 +7,7 @@ from nonebot.internal.adapter import Event, Message
 from nonebot_plugin_orm import get_session
 from sqlalchemy import select, delete
 
-from ..api import bind_user_info
+from ..info import bind_user_info
 from ..exceptions import NetworkError
 from ..database import UserData
 
