@@ -14,13 +14,11 @@ mods_dic = {
     "HR": 1 << 4,
     "SD": 1 << 5,
     "DT": 1 << 6,
-    "RX": 1 << 7,
     "HT": 1 << 8,
     "NC": 1 << 9,
     "FL": 1 << 10,
     "AT": 1 << 11,
     "SO": 1 << 12,
-    "RX2": 1 << 13,
     "PF": 1 << 14,
     "4K": 1 << 15,
     "5K": 1 << 16,
@@ -41,12 +39,6 @@ mods_dic = {
 }
 
 
-def get_mods(mods: int) -> list[Mod]:
-    # Avoid copying the dictionary by iterating directly and filtering
-    result = [Mod(acronym=mod) for mod, bit in mods_dic.items() if mod not in ("CL", "NO") and mods & bit]
-    return result + [Mod(acronym="CL")]
-
-
 def get_mods_list(score_ls: list[UnifiedScore], mods: list[str]) -> list[int]:
     if not mods:
         return list(range(len(score_ls)))
@@ -59,13 +51,6 @@ def get_mods_list(score_ls: list[UnifiedScore], mods: list[str]) -> list[int]:
         if matched:
             mods_index_ls.append(i)
     return mods_index_ls
-
-
-def calc_mods(mods: list[Mod]) -> int:
-    num = 0
-    for mod in mods:
-        num ^= mods_dic.get(mod.acronym, 0)
-    return num
 
 
 def get_speed_change_label(mod: Mod) -> str | None:

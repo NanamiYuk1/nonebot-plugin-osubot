@@ -18,7 +18,7 @@ from ..schema import Beatmap, NewScore
 from ..beatmap_stats_moder import with_mods
 from ..pp import cal_pp, get_if_pp_ss_pp, get_pp_components
 from ..schema.score import Mod, UnifiedScore, NewStatistics, get_score_version
-from ..api import osu_api, get_user_scores, get_user_info_data, get_ppysb_map_scores
+from ..api import osu_api, get_user_scores, get_user_info_data
 from ..file import map_path, download_osu, user_cache_path, team_cache_path, get_projectimg
 from .utils import (
     is_close,
@@ -126,32 +126,29 @@ async def get_score_data(
     native_mode = int(map_json["mode_int"])
     mode = NGM[normalize_map_mode(FGM[mode], native_mode, source)]
     task = asyncio.create_task(get_user_info_data(uid, mode, source))
-    if source == "osu":
-        if mods:
-            score_json = await osu_api("score", uid, mode, mapid, legacy_only=int(not is_lazer))
-            score_ls = [NewScore(**i) for i in score_json["scores"]]
-        else:
-            score_json = await osu_api("best_score", uid, mode, mapid, legacy_only=int(not is_lazer))
-            grank = score_json.get("position", "")
-            score_ls = [NewScore(**score_json["score"])]
-        score_ls = [
-            UnifiedScore(
-                mods=i.mods,
-                ruleset_id=i.ruleset_id,
-                rank=i.rank,
-                accuracy=i.accuracy * 100,
-                total_score=i.total_score,
-                ended_at=datetime.strptime(i.ended_at.replace("Z", ""), "%Y-%m-%dT%H:%M:%S") + timedelta(hours=8),
-                max_combo=i.max_combo,
-                statistics=i.statistics,
-                legacy_total_score=i.legacy_total_score,
-                passed=i.passed,
-                score_version=get_score_version(i.legacy_score_id),
-            )
-            for i in score_ls
-        ]
+    if mods:
+        score_json = await osu_api("score", uid, mode, mapid, legacy_only=int(not is_lazer))
+        score_ls = [NewScore(**i) for i in score_json["scores"]]
     else:
-        score_ls = await get_ppysb_map_scores(map_json["checksum"], uid, mode)
+        score_json = await osu_api("best_score", uid, mode, mapid, legacy_only=int(not is_lazer))
+        grank = score_json.get("position", "")
+        score_ls = [NewScore(**score_json["score"])]
+    score_ls = [
+        UnifiedScore(
+            mods=i.mods,
+            ruleset_id=i.ruleset_id,
+            rank=i.rank,
+            accuracy=i.accuracy * 100,
+            total_score=i.total_score,
+            ended_at=datetime.strptime(i.ended_at.replace("Z", ""), "%Y-%m-%dT%H:%M:%S") + timedelta(hours=8),
+            max_combo=i.max_combo,
+            statistics=i.statistics,
+            legacy_total_score=i.legacy_total_score,
+            passed=i.passed,
+            score_version=get_score_version(i.legacy_score_id),
+        )
+        for i in score_ls
+    ]
     if not score_ls:
         raise NetworkError("未查询到游玩记录")
     if mods:
@@ -182,8 +179,7 @@ async def get_score_data(
     user_path = user_cache_path / str(info.id)
     user_path.mkdir(parents=True, exist_ok=True)
     # 判断是否开启lazer模式
-    if source == "osu":
-        score = cal_score_info(is_lazer, score, source)
+    score = cal_score_info(is_lazer, score, source)
     return await draw_score_pic(score, info, map_json, grank, source)
 
 
@@ -220,7 +216,7 @@ async def draw_score_pic(score_info: UnifiedScore, info: UnifiedUser, map_json, 
     pp_info = cal_pp(score_info, str(osu.absolute()), source)
     if_pp, ss_pp = get_if_pp_ss_pp(score_info, str(osu.absolute()), source)
     display_stars = pp_info.stars
-    display_pp = score_info.pp if source == "ppysb" and score_info.pp is not None else pp_info.pp
+    display_pp = pp_info.pp
     return await render_score_template(
         score_info,
         info,
@@ -690,9 +686,9 @@ def cal_legacy_rank(score_info: UnifiedScore, is_hidden: bool):
 
 
 def cal_score_info(is_lazer: bool, score_info: UnifiedScore, source: str = "osu") -> UnifiedScore:
-    if score_info.ruleset_id == 3 and not is_lazer and source != "ppysb":
+    if score_info.ruleset_id == 3 and not is_lazer:
         score_info.accuracy = cal_legacy_acc(score_info.statistics)
-    if not is_lazer and source != "ppysb":
+    if not is_lazer:
         is_hidden = any(i in score_info.mods for i in (Mod(acronym="HD"), Mod(acronym="FL"), Mod(acronym="FI")))
         score_info.rank = cal_legacy_rank(score_info, is_hidden)
     return score_info

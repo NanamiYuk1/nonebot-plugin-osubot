@@ -26,7 +26,7 @@ async def _(state: T_State):
             reply_to=True
         )
     for score in score_ls:
-        if not state["is_lazer"] or state["source"] == "ppysb":
+        if not state["is_lazer"]:
             score.mods = [mod for mod in score.mods if mod.acronym != "CL"]
         for mod in score.mods:
             if mod.acronym == "DT" or mod.acronym == "NC":

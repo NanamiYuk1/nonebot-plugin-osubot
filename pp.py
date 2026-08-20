@@ -6,25 +6,7 @@ from .exceptions import NetworkError
 from .schema.score import Mod, UnifiedScore
 
 
-PPYSB_RELAX_RULESETS = {4, 5, 6}
-RELAX_MODS = {"RX", "RX2"}
-
-
-def is_ppysb_relax_score(score: UnifiedScore, source: str) -> bool:
-    return source == "ppysb" and score.ruleset_id in PPYSB_RELAX_RULESETS
-
-
-def normalize_mods_for_pp(mods: list[Mod] | list[str], source: str, ruleset_id: int):
-    if source == "ppysb" and ruleset_id in PPYSB_RELAX_RULESETS:
-        return [mod for mod in mods if (mod if isinstance(mod, str) else mod.acronym) not in RELAX_MODS]
-    return mods
-
-
 def normalize_score_for_pp(score: UnifiedScore, source: str = "osu") -> UnifiedScore:
-    if not is_ppysb_relax_score(score, source):
-        return score
-    score = score.model_copy(deep=True)
-    score.mods = normalize_mods_for_pp(score.mods, source, score.ruleset_id)
     return score
 
 
@@ -104,9 +86,7 @@ def get_if_pp_ss_pp(score: UnifiedScore, path: str, source: str = "osu") -> tupl
         return "nan", "nan"
     c = OsuCalculator()
     total = beatmap.n_objects
-    score = normalize_score_for_pp(score, source)
-    if not is_ppysb_relax_score(score, source):
-        score = score.model_copy(deep=True)
+    score = score.model_copy(deep=True)
     if score.ruleset_id % 4 == 2:
         missed_fruits = score.statistics.miss or 0
         score.statistics.great = (score.statistics.great or 0) + missed_fruits
@@ -155,7 +135,6 @@ def get_ss_pp(path: str, ruleset_id: int, mods: list[str], source: str = "osu") 
     if beatmap.is_suspicious():
         raise NetworkError("这似乎不是一个正常谱面 OAO")
     c = OsuCalculator()
-    mods = normalize_mods_for_pp(mods, source, ruleset_id)
     res = c.calculate(path, ruleset_id % 4, acc=100, mods=mods)
     return res
 

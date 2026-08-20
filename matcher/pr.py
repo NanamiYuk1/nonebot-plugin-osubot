@@ -26,7 +26,7 @@ def _extract_day(arg: Message) -> int:
     """[修复] 从原始命令参数中提取独立序号。
 
     - 可匹配: "2"、"2:o"、"2:osu"、"2:m" 等（数字后可跟 :模式）
-    - 不匹配: 范围 "1-30"、Mod "+HDHR"、玩家名、"&sb" 等
+    - 不匹配: 范围 "1-30"、Mod "+HDHR"、玩家名 等
     未找到有效序号时返回 0。
     """
     for token in arg.extract_plain_text().split():
@@ -64,7 +64,7 @@ async def _draw_recent_list(state: T_State, include_fails: bool, project: str):
                 not state["is_lazer"],
                 include_fails,
                 low - 1,
-                high if state["source"] == "ppysb" else high - low + 1,
+                high - low + 1,
             )
     except NetworkError as e:
         mods = f" mod:{state['mods']}" if state["mods"] else ""

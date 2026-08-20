@@ -5,9 +5,9 @@ HELP_TOPICS = {
     "overview": (
         "OSUBot 指令帮助\n"
         "先使用 /bind <用户名、UID或主页链接> 绑定账号，再用 /info、/bp、/bl、/rl 等指令查询。\n"
-        "通用格式：/命令 [玩家] [序号或范围]:[模式] [+Mods] [&sb]\n"
+        "通用格式：/命令 [玩家] [序号或范围]:[模式] [+Mods]\n"
         "模式简称：o=osu!、t=taiko、c=catch、m=mania。\n"
-        "可继续询问：绑定、模式、成绩、谱面、资料、多人、SB服，或“全部指令”。"
+        "可继续询问：绑定、模式、成绩、谱面、资料、多人，或“全部指令”。"
     ),
     "bind": (
         "账号绑定\n"
@@ -77,12 +77,6 @@ HELP_TOPICS = {
         "/myach [模式]：查看自己已获得的成就（/我的成就，输出图片）\n"
         "/achrec [模式]：根据已获得成就推荐未获得成就（/成就推荐，图片+攻略）\n"
         "/音频猜歌、/图片猜歌、/谱面猜歌：开始猜歌游戏"
-    ),
-    "sb": (
-        "ppysb 服务器查询\n"
-        "/sbbind <玩家>：绑定 ppysb；/sbunbind：解除绑定\n"
-        "在普通查询末尾添加 &sb，例如 /info &sb、/bl:4 &sb、/rl:5 &sb、/sc <mapid>:6 &sb。\n"
-        "模式 0/1/2/3：std/taiko/catch/mania；4/5/6：RX std/taiko/catch；8：AP std。"
     ),
 }
 
@@ -157,13 +151,9 @@ TOPIC_ALIASES = {
     "achrec": "game",
     "成就推荐": "game",
     "推荐成就": "game",
-    "ppysb": "sb",
-    "sb服": "sb",
-    "sbbind": "sb",
-    "sbunbind": "sb",
 }
 
-TOPIC_LABELS = "概览、绑定、模式、成绩、谱面、资料、好友、多人、SB服、全部"
+TOPIC_LABELS = "概览、绑定、模式、成绩、谱面、资料、好友、多人、全部"
 
 
 def get_command_help(topic: str | None = "overview") -> str:

@@ -84,10 +84,6 @@ def build_history_data(
         "taiko": "太鼓模式",
         "fruits": "接水果模式",
         "mania": "键盘模式",
-        "rxosu": "Relax 标准模式",
-        "rxtaiko": "Relax 太鼓模式",
-        "rxfruits": "Relax 接水果模式",
-        "aposu": "Autopilot 标准模式",
     }
     display_name = username or title.split(" ", 1)[0] or "osu! 玩家"
     return {
@@ -246,12 +242,10 @@ async def build_bpa_data(score_ls: list, source: str) -> dict:
         beatmap = getattr(i, "beatmap", None)
         if not beatmap:
             continue
-        key = getattr(beatmap, "creator", None) if source == "ppysb" else getattr(beatmap, "user_id", None)
+        key = getattr(beatmap, "user_id", None)
         mapper_pp[key] += _num(i.pp) * 0.95**num
     mapper_items = sorted(mapper_pp.items(), key=lambda x: x[1], reverse=True)[:9]
-    if source == "ppysb":
-        mapper_pp_data = [{"name": str(m), "value": round(pp, 2)} for m, pp in mapper_items]
-    elif mapper_items:
+    if mapper_items:
         users = await get_users([m for m, _ in mapper_items])
         user_dic = {u.id: u.username for u in users}
         mapper_pp_data = [{"name": user_dic.get(m, str(m)), "value": round(pp, 2)} for m, pp in mapper_items]
@@ -331,24 +325,16 @@ async def draw_bpa_plot(
         "taiko": "太鼓模式",
         "fruits": "接水果模式",
         "mania": "键盘模式",
-        "rxosu": "Relax 标准模式",
-        "rxtaiko": "Relax 太鼓模式",
-        "rxfruits": "Relax 接水果模式",
-        "aposu": "Autopilot 标准模式",
     }
     mode_icons = {
         "osu": "\ue800",
         "fruits": "\ue801",
         "mania": "\ue802",
         "taiko": "\ue803",
-        "rxosu": "\ue800",
-        "rxtaiko": "\ue803",
-        "rxfruits": "\ue801",
-        "aposu": "\ue800",
     }
-    source_label = "ppy.sb" if source == "ppysb" else "osu! official"
+    source_label = "osu! official"
     if avatar_url is None and user_id:
-        avatar_host = "https://a.ppy.sb" if source == "ppysb" else "https://a.ppy.sh"
+        avatar_host = "https://a.ppy.sh"
         avatar_url = f"{avatar_host}/{user_id}"
     pic = await render_template(
         template_path,

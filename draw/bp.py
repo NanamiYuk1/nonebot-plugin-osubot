@@ -94,8 +94,7 @@ async def draw_pfm(
             try:
                 pp_info = cal_pp(score, str(osu_file.absolute()), source)
                 stars = pp_info.stars
-                if source != "ppysb":
-                    pp_value = pp_info.pp
+                pp_value = pp_info.pp
             except Exception:
                 pass
         speed_changes = get_speed_change_labels(score.mods)

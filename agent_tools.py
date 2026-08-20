@@ -25,7 +25,7 @@ from .utils import NGM, mods2list
 from .mods import get_mods_list
 from .file import download_osu
 from .mania import generate_preview_pic
-from .database import InfoData, UserData, SbUserData
+from .database import InfoData, UserData
 from .exceptions import NetworkError
 from .schema.score import UnifiedScore
 from .draw.score import cal_score_info
@@ -86,9 +86,6 @@ class ResolvedOsuUser:
 
 
 def _normalize_source(source: str) -> str:
-    source = (source or "osu").strip().lower()
-    if source in {"sb", "ppysb"}:
-        return "ppysb"
     return "osu"
 
 
@@ -188,11 +185,8 @@ def _normalize_mode(mode: str | int | None, source: str) -> str | None:
     mode_text = str(mode).strip()
     if not mode_text or mode_text.lower() in {"none", "null", "nil", "undefined"}:
         return None
-    allowed = {"0", "1", "2", "3"}
-    if source == "ppysb":
-        allowed = {"0", "1", "2", "3", "4", "5", "6", "8"}
-    if mode_text not in allowed:
-        raise ValueError("mode 必须为 0=std, 1=taiko, 2=ctb/fruits, 3=mania；ppysb 还支持 4/5/6/8")
+    if mode_text not in {"0", "1", "2", "3"}:
+        raise ValueError("mode 必须为 0=std, 1=taiko, 2=ctb/fruits, 3=mania")
     return mode_text
 
 
@@ -221,17 +215,6 @@ async def _resolve_osu_user(
     bind_user_ids = _tool_user_id_candidates(ctx, target_user_id)
     if not bind_user_ids:
         raise ValueError("当前没有可用的用户 ID，请指定 osu 用户名")
-
-    if source == "ppysb":
-        async with get_session() as session:
-            user = None
-            for bind_user_id in bind_user_ids:
-                user = await session.scalar(select(SbUserData).where(SbUserData.user_id == bind_user_id))
-                if user:
-                    break
-        if not user:
-            raise ValueError("当前用户尚未绑定 osu 账号，请先使用 /sbbind 用户名")
-        return ResolvedOsuUser(user.osu_id, user.osu_name)
 
     async with get_session() as session:
         user = None
@@ -471,7 +454,7 @@ def build_osu_agent_tools(ctx: AgentToolContext) -> AgentToolBundle:
         """
         查询并发送 osu 玩家信息图。
         username 不填时使用当前用户或被 @ 群友绑定的 osu 账号。
-        mode: 0=std, 1=taiko, 2=ctb/fruits, 3=mania。source: osu 或 ppysb。
+        mode: 0=std, 1=taiko, 2=ctb/fruits, 3=mania。source: osu。
         """
         try:
             source = _normalize_source(source)
@@ -807,7 +790,7 @@ def build_osu_agent_tools(ctx: AgentToolContext) -> AgentToolBundle:
                 return f"没有找到 {user.name} 的 bp 成绩"
 
             for score in score_ls:
-                if not is_lazer or source == "ppysb":
+                if not is_lazer:
                     score.mods = [mod for mod in score.mods if mod.acronym != "CL"]
                 for mod in score.mods:
                     if not score.beatmap:
@@ -884,7 +867,7 @@ def build_osu_agent_tools(ctx: AgentToolContext) -> AgentToolBundle:
         try:
             source = _normalize_source(source)
             user = await _resolve_osu_user(ctx, username, source, target_user_id)
-            url = f"https://osu.ppy.sh/u/{user.user_id}" if source == "osu" else f"https://akatsuki.gg/u/{user.user_id}"
+            url = f"https://osu.ppy.sh/u/{user.user_id}"
             await UniMessage.text(url).send(target=ctx.send_target)
             return f"已发送 {user.name} 的主页链接: {url}"
         except Exception as e:

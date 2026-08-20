@@ -472,7 +472,7 @@
     const compact = value => Number(value || 0).toLocaleString("en-US", {notation:"compact", maximumFractionDigits:2}).toLowerCase();
     const escapeHtml = value => String(value ?? "").replace(/[&<>'"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
     const countryName = code => { try { return new Intl.DisplayNames(["zh-CN"], {type:"region"}).of(code) || code; } catch { return code; } };
-    const modeNames = {OSU:"标准",TAIKO:"太鼓",FRUITS:"接水果",MANIA:"键盘",RXOSU:"Relax",RXTAIKO:"Relax 太鼓",RXFRUITS:"Relax 接水果",APOSU:"Autopilot"};
+    const modeNames = {OSU:"标准",TAIKO:"太鼓",FRUITS:"接水果",MANIA:"键盘"};
     const tierColours = {iron:["#bab3ab","#bab3ab"],bronze:["#b88f7a","#855c47"],silver:["#e0e0eb","#a3a3c2"],gold:["#f0e4a8","#e0c952"],platinum:["#a8f0ef","#52e0df"],rhodium:["#d9f8d3","#a0cf96"],radiant:["#97dcff","#ed82ff"],lustrous:["#ffe600","#ed82ff"],base:["#ccc","#999"]};
     const starStops = [[.1,"#4290FB"],[1.25,"#4FC0FF"],[2,"#4FFFD5"],[2.5,"#7CFF4F"],[3.3,"#F6F05C"],[4.2,"#FF8068"],[4.9,"#FF4E6F"],[5.8,"#C645B8"],[6.7,"#6563DE"],[7.7,"#18158E"],[9,"#000000"]];
     function mixHex(a,b,t){const x=parseInt(a.slice(1),16),y=parseInt(b.slice(1),16),out=[16,8,0].map(s=>Math.round(((x>>s)&255)*(1-t)+((y>>s)&255)*t));return"#"+out.map(v=>v.toString(16).padStart(2,"0")).join("")}
