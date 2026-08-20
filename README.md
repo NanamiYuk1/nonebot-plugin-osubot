@@ -99,7 +99,7 @@ OSU_OAUTH_REDIRECT_URI=https://你的公网域名/osubot/oauth/callback
 
 # ===== 谱面预览（/预览、/谱面猜歌）=====
 # 必配：Rust 渲染二进制（osu-beatmap-preview）的绝对路径。
-# 注意：config.py 里的默认值指向开发机上的 AstrBot 插件目录，新机器必须用本项覆盖！
+# config.py 默认值为 None（未配置）；不配置时 /预览 自动回退旧浏览器渲染链路。
 OSU_PREVIEW_BIN_PATH=C:/path/to/osu-beatmap-preview-windows-amd64.exe
 OSU_PREVIEW_USE_CORE=true      # 是否启用二进制渲染（默认 true）
 OSU_PREVIEW_FALLBACK=true      # 二进制缺失/失败时是否回退旧浏览器链路（默认 true）
@@ -154,7 +154,7 @@ osu-beatmap-preview --bid <bid> --fmt <png|gif|mp4> [--convert taiko|ctb|mania] 
      ```ini
      OSU_PREVIEW_BIN_PATH=C:/absolute/path/to/osu-beatmap-preview-windows-amd64.exe
      ```
-   - 或者修改 `config.py` 中 `osu_preview_bin_path` 的默认值（注意：会随代码提交到仓库，不建议提交个人机器路径）。
+   - 或者修改 `config.py` 中 `osu_preview_bin_path` 的默认值（默认已为 `None`；注意改动会随代码提交到仓库）。
 4. **验证**：`/预览 <mapid>` 正常出图即可。二进制缺失、超时或非零退出时，插件会按 `OSU_PREVIEW_FALLBACK` 配置回退旧浏览器链路，并在日志（logger：`nonebot_plugin_osubot.core_preview`）中输出原因。
 
 ### 二进制支持的参数（与 astrbot 插件文档一致）

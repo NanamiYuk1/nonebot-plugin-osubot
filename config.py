@@ -24,12 +24,7 @@ class Config(BaseModel):
     osu_preview_std_catch_full_frame_interval: int = 30
     
     # ---- osu-beatmap-preview (Rust 二进制) ----
-    osu_preview_bin_path: Path = Path(
-        r"C:\Users\Administrator\Desktop\Bot\AstrBotLauncher-0.3.0"
-        r"\AstrBotLauncher-0.3.0\AstrBot\data\plugins"
-        r"\astrbot_plugin_osu_beatmap_preview\bin"
-        r"\osu-beatmap-preview-windows-amd64.exe"
-    )
+    osu_preview_bin_path: Optional[Path] = None   # 渲染二进制绝对路径；未配置时自动回退旧浏览器链路
     osu_preview_use_core: bool = True       # 是否启用二进制渲染
     osu_preview_fallback: bool = True       # core 失败时是否回退旧链路
     osu_preview_timeout: float = 120.0      # gif/png 单次超时(秒)

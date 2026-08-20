@@ -87,8 +87,12 @@ async def render_with_core(
     Raises:
         CorePreviewError: 二进制缺失、超时、非零退出、JSON 解析失败或产物不存在。
     """
-    bin_path = Path(bin_path)
-    if not bin_path.is_file():
+    bin_path = Path(bin_path) if bin_path else None
+    if bin_path is None or not bin_path.is_file():
+        if bin_path is None:
+            raise CorePreviewError(
+                "未配置 osu_preview_bin_path（OSU_PREVIEW_BIN_PATH），无法使用二进制渲染，已回退旧链路"
+            )
         raise CorePreviewError(f"osu-beatmap-preview 二进制不存在: {bin_path}")
 
     cmd: list[str] = [str(bin_path), "--bid", str(bid), "--fmt", fmt]
