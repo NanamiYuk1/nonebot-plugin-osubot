@@ -64,8 +64,10 @@
 
 ### 多人比赛（重写）
 
-- `/mp <matchid/roomid>`、`/match`：多人比赛结果改为多页图片渲染；OB11 下优先合并转发（`send_group_forward_msg`），失败自动逐张重试发送。
-- `/rt <matchid/roomid>`、`/rating`：多页 rating 图片顺序发送，补齐参数校验、异常捕获与友好错误提示。
+- `/mp <match id / room id>`、`/match`：多人比赛结果改为多页图片渲染；OB11 下优先合并转发（`send_group_forward_msg`），失败自动逐张重试发送。
+- `/rt <match id / room id>`、`/rating`：多页 rating 图片顺序发送，补齐参数校验、异常捕获与友好错误提示。
+- **支持 Lazer 多人房 room id 查询**（也兼容 stable mp 的 match id）：查询时自动尝试 `/matches/` 接口，失败后回退 `/rooms/` 接口。
+- Lazer 房间支持 **head-to-head、team-vs（tag-team-vs）** 等模式：自动从房间 events 接口解析红蓝分队、剔除被强制关闭（abort）的对局；同一房间中途切换模式（如热身 head-to-head → 正赛 team-vs）时按模式分别渲染。
 
 ### 其他改动
 
