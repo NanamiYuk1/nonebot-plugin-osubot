@@ -1,0 +1,43 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# ===== 运行时数据（勿提交）=====
+data/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+out.pcm
+match_*_raw.json
+
+# ===== 环境变量（含密钥，切勿提交）=====
+.env
+.env.*
+!.env.example
+
+# ===== 编辑器 / 系统 =====
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== 临时备份 =====
+*.bak
+*.bak.*
+*.orig
+*.rej
+
+# ===== 测试 / 构建 =====
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/

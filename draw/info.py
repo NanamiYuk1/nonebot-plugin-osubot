@@ -1,0 +1,243 @@
+import asyncio
+import base64
+import jinja2
+from pathlib import Path
+from typing import Union
+from datetime import date, datetime, timedelta
+
+from PIL import UnidentifiedImageError
+
+from nonebot_plugin_orm import get_session
+from sqlalchemy import select
+
+from .utils import info_calc
+from .browser import persistent_page
+from ..mods import get_speed_change_labels
+from ..pp import cal_pp
+from ..utils import FGM, GMN
+from ..file import user_cache_path, download_osu, map_path
+from ..exceptions import NetworkError
+from ..database.models import InfoData
+from ..schema.draw_info import DrawUser, Badge, DrawBestPlay
+from ..api import get_user_info_data, get_user_scores
+
+
+async def draw_info(uid: Union[int, str], mode: str, day: int, source: str) -> bytes:
+    info = await get_user_info_data(uid, mode, source)
+    statistics = info.statistics
+    if statistics.play_count == 0:
+        raise NetworkError(f"此玩家尚未游玩过{GMN[mode]}模式")
+    # 对比
+    async with get_session() as session:
+        user = await session.scalar(
+            select(InfoData)
+            .where(InfoData.osu_id == info.id, InfoData.osu_mode == FGM[mode])
+            .order_by(InfoData.date.desc())
+        )
+        if user:
+            today_date = date.today()
+            # 补全今天记录的 c_rank（批量更新接口不返回 country_rank）
+            today_record = await session.scalar(
+                select(InfoData).where(
+                    InfoData.osu_id == info.id, InfoData.osu_mode == FGM[mode], InfoData.date == today_date
+                )
+            )
+            if today_record and today_record.c_rank is None and statistics.country_rank is not None:
+                today_record.c_rank = statistics.country_rank
+                await session.commit()
+            query_date = today_date - timedelta(days=day)
+            user = await session.scalar(
+                select(InfoData)
+                .where(InfoData.osu_id == info.id, InfoData.osu_mode == FGM[mode], InfoData.date >= query_date)
+                .order_by(InfoData.date)
+            )
+    if user:
+        n_crank = user.c_rank
+        n_grank = user.g_rank
+        n_pp = user.pp
+        n_acc = user.acc
+        n_pc = user.pc
+        n_count = user.count
+        n_ranked_score = user.ranked_score
+        n_total_score = user.total_score
+        n_xh = user.count_xh
+        n_x = user.count_x
+        n_sh = user.count_sh
+        n_s = user.count_s
+        n_a = user.count_a
+        n_play_time = user.play_time
+        n_badge_count = user.badge_count
+    else:
+        gc = statistics.grade_counts
+        n_crank = statistics.country_rank
+        n_grank = statistics.global_rank
+        n_pp = statistics.pp
+        n_acc = statistics.hit_accuracy
+        n_pc = statistics.play_count
+        n_count = statistics.total_hits
+        n_ranked_score = statistics.ranked_score
+        n_total_score = statistics.total_score
+        n_xh = gc.ssh
+        n_x = gc.ss
+        n_sh = gc.sh
+        n_s = gc.s
+        n_a = gc.a
+        n_play_time = statistics.play_time
+        n_badge_count = len(info.badges) if info.badges else 0
+    # 获取背景
+    bg_path = user_cache_path / str(info.id) / "info.png"
+    if bg_path.exists():
+        try:
+            with open(bg_path, "rb") as image_file:
+                encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
+
+            # 格式化为 CSS 接受的 data URI 格式
+            bg = f"data:image/png;base64,{encoded_string}"
+        except UnidentifiedImageError:
+            bg_path.unlink()
+            raise NetworkError("自定义背景图片读取错误，请重新上传！")
+    else:
+        # 无自定义背景时留空：随机图在深色面板下几乎不可见，且下载接口异常会卡住出图
+        bg = ""
+    if day != 0 and user:
+        day_delta = date.today() - user.date
+        time = day_delta.days
+        footer = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+        footer += f" | 数据对比于 {time} 天前"
+    else:
+        footer = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+    op, value = info_calc(statistics.pp, n_pp, pp=True)
+    pp_change = f"{op}{value:,.2f}" if value != 0 else None
+    op, value = info_calc(statistics.global_rank, n_grank, rank=True)
+    rank_change = f"{op}{value:,}" if value != 0 else None
+    op, value = info_calc(statistics.country_rank, n_crank, rank=True)
+    country_rank_change = f"({op}{value:,})" if value != 0 else None
+    # acc
+    op, value = info_calc(statistics.hit_accuracy, n_acc)
+    acc_change = f"({op}{value:.2f}%)" if value != 0 else None
+
+    def _fmt_change(cur, prev, fmt=",", suffix=""):
+        if prev is None:
+            return None
+        op, value = info_calc(cur, prev)
+        return f"({op}{value:{fmt}}{suffix})" if value != 0 else None
+
+    pc_change = _fmt_change(statistics.play_count, n_pc)
+    hits_change = _fmt_change(statistics.total_hits, n_count)
+    ranked_score_change = _fmt_change(statistics.ranked_score, n_ranked_score)
+    total_score_change = _fmt_change(statistics.total_score, n_total_score)
+    gc = statistics.grade_counts
+    xh_change = _fmt_change(gc.ssh, n_xh)
+    x_change = _fmt_change(gc.ss, n_x)
+    sh_change = _fmt_change(gc.sh, n_sh)
+    s_change = _fmt_change(gc.s, n_s)
+    a_change = _fmt_change(gc.a, n_a)
+    play_time_change = _fmt_change(statistics.play_time, n_play_time, suffix="s")
+    cur_badge = len(info.badges) if info.badges else 0
+    badge_count_change = _fmt_change(cur_badge, n_badge_count)
+    badges = [Badge(**i.model_dump()) for i in info.badges] if info.badges else None
+
+    best_plays: list[DrawBestPlay] = []
+    try:
+        scores = (await get_user_scores(info.id, mode, "best", source=source, limit=10))[:10]
+    except NetworkError:
+        scores = []
+
+    download_tasks = [
+        download_osu(score.beatmap.set_id, score.beatmap.id)
+        for score in scores
+        if score.beatmap and not (map_path / str(score.beatmap.set_id) / f"{score.beatmap.id}.osu").exists()
+    ]
+    if download_tasks:
+        await asyncio.gather(*download_tasks, return_exceptions=True)
+
+    for score in scores:
+        if not score.beatmap:
+            continue
+        osu_file = map_path / str(score.beatmap.set_id) / f"{score.beatmap.id}.osu"
+        stars = score.beatmap.stars
+        if osu_file.exists():
+            try:
+                stars = cal_pp(score, str(osu_file.absolute()), source).stars
+            except Exception:
+                pass
+        speed_changes = get_speed_change_labels(score.mods)
+        mods = [mod.acronym for mod in score.mods]
+        if "NC" in mods and "DT" in mods:
+            mods.remove("DT")
+        cover_url = (
+            score.beatmapset.covers.list
+            if score.beatmapset and score.beatmapset.covers
+            else f"https://assets.ppy.sh/beatmaps/{score.beatmap.set_id}/covers/list@2x.jpg"
+        )
+        best_plays.append(
+            DrawBestPlay(
+                title=score.beatmap.title,
+                artist=score.beatmap.artist,
+                version=score.beatmap.version,
+                cover_url=cover_url,
+                pp=score.pp or 0,
+                accuracy=score.accuracy,
+                stars=stars,
+                rank=score.rank,
+                mods=mods,
+                speed_changes=speed_changes,
+                ended_at=score.ended_at,
+            )
+        )
+
+    rank_history = (info.rank_history or {}).get("data", [])
+    draw_user = DrawUser(
+        id=info.id,
+        username=info.username,
+        avatar_url=info.avatar_url,
+        country_code=info.country_code,
+        support_level=info.support_level,
+        join_date=info.join_date,
+        follower_count=info.follower_count,
+        achievement_count=len(info.user_achievements or []),
+        rank_history=rank_history,
+        best_plays=best_plays,
+        mode=mode.upper(),
+        badges=badges,
+        team=info.team.model_dump() if info.team else None,
+        statistics=info.statistics.model_dump() if info.statistics else None,
+        footer=footer,
+        rank_change=rank_change,
+        country_rank_change=country_rank_change,
+        pp_change=pp_change,
+        acc_change=acc_change,
+        pc_change=pc_change,
+        hits_change=hits_change,
+        ranked_score_change=ranked_score_change,
+        total_score_change=total_score_change,
+        xh_change=xh_change,
+        x_change=x_change,
+        sh_change=sh_change,
+        s_change=s_change,
+        a_change=a_change,
+        play_time_change=play_time_change,
+        badge_count_change=badge_count_change,
+    )
+    template_path = str(Path(__file__).parent / "info_templates")
+    template_name = "index.html"
+    template_env = jinja2.Environment(  # noqa: S701
+        loader=jinja2.FileSystemLoader(template_path),
+        enable_async=True,
+    )
+    template = template_env.get_template(template_name)
+    async with persistent_page(
+        "info", (Path(template_path) / template_name).as_uri(), {"width": 1800, "height": 1200}
+    ) as page:
+        await page.set_content(
+            await template.render_async(user_json=draw_user.model_dump_json(), bg=bg),
+            wait_until="domcontentloaded",
+        )
+        await page.evaluate(
+            "Promise.race([Promise.all([document.fonts.ready, "
+            "...Array.from(document.images, image => image.decode().catch(() => {}))]), "
+            "new Promise(resolve => setTimeout(resolve, 8000))])"
+        )
+        elem = await page.query_selector("#display")
+        assert elem
+        return await elem.screenshot(type="jpeg", quality=92)

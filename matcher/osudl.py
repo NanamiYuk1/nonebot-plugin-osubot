@@ -1,0 +1,41 @@
+from nonebot import on_command
+from nonebot.params import CommandArg
+from nonebot.internal.adapter import Event, Message
+from nonebot_plugin_alconna import UniMessage
+
+from .map_context import get_last_set_id, remember_set
+from ..api import osu_api
+from ..utils import extract_beatmap_id, extract_beatmapset_id
+from ..file import download_map
+
+osudl = on_command("osudl", aliases={"dl"}, priority=11, block=True)
+
+
+@osudl.handle()
+async def _osudl(event: Event, setid: Message = CommandArg()):
+    raw_set_id = setid.extract_plain_text().strip()
+    explicit_set_id = extract_beatmapset_id(raw_set_id)
+    if not explicit_set_id and (linked_map_id := extract_beatmap_id(raw_set_id)):
+        try:
+            map_data = await osu_api("map", map_id=int(linked_map_id))
+            explicit_set_id = str(map_data["beatmapset_id"])
+        except Exception:
+            explicit_set_id = None
+    explicit_set_id = explicit_set_id or raw_set_id
+    setid = explicit_set_id or await get_last_set_id(event)
+    if not setid or not setid.isdigit():
+        await UniMessage.text("请输入正确的setID，或先查询一张谱面").finish(reply_to=True)
+    try:
+        osz_path = await download_map(int(setid))
+    except Exception as e:
+        await UniMessage.text(f"下载谱面集失败，请检查 setID 是否正确\n错误信息: {e}").finish(reply_to=True)
+    remember_set(event, setid)
+    try:
+        await UniMessage.file(path=osz_path.absolute(), name=osz_path.name).send()
+    except Exception:
+        await UniMessage.text("上传文件失败，可能是群空间满或没有权限导致的").send(reply_to=True)
+    finally:
+        try:
+            osz_path.unlink()
+        except PermissionError:
+            ...
