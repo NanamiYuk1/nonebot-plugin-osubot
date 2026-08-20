@@ -9,6 +9,26 @@
 
 ---
 
+## 环境要求与依赖
+
+- **Python 3.10 ~ 3.13**（与源项目一致；代码使用了 `str | None` 等新语法）
+- **NoneBot2 ≥ 2.3.0**，以及以下 NoneBot 插件（均为源项目已有依赖，新增功能未引入新的硬依赖）：
+  - `nonebot-plugin-alconna`、`nonebot-plugin-session`、`nonebot-plugin-apscheduler`、`nonebot-plugin-waiter`、`nonebot-plugin-uninfo`
+  - `nonebot-plugin-orm`：使用 SQLite，首次启动自动建表并执行迁移（好友功能的 `UserOAuthData` 令牌表也由迁移创建）
+  - `nonebot-plugin-htmlrender[playwright]`：图片渲染使用 Playwright，需安装浏览器 `playwright install chromium`
+  - `nonebot-plugin-ai-groupmate`（可选）：启用后 AI 群友可直接调用本插件的查询/渲染工具
+  - 其他 Python 库：`pillow`、`httpx`、`expiringdict`、`matplotlib`、`rosu-pp-py`、`osu-tools-py`、`rhythmgame-tools`
+- **驱动**：推荐 `DRIVER=~fastapi+~httpx`——`/friend` 的 OAuth 回调需要 FastAPI / Quart 驱动自动挂载路由；其他驱动仍可用 `/frbind <code>` 手动完成授权
+- **ffmpeg**：仅在回退到旧浏览器渲染链路、且生成完整预览视频时需要（二进制渲染不依赖 ffmpeg）
+- **osu-beatmap-preview 二进制**（可选但推荐）：`/预览`、`/谱面猜歌` 的二进制渲染核心，未配置时自动回退旧浏览器链路，见「预览渲染核心配置」
+- **osu! API 凭据**：`OSU_CLIENT` / `OSU_KEY`，或 `OSU_OAUTH_CLIENT_ID` / `OSU_OAUTH_CLIENT_SECRET`（见「.env 配置方法」）
+
+### 安装
+
+将本仓库 clone / 下载后，整个文件夹放入 NoneBot 项目的 `plugins/` 目录即可（本仓库即插件包本体，未打包为独立发行版）；随后按「.env 配置方法」填写配置并重启机器人。
+
+---
+
 ## 新增 / 改动的指令
 
 ### 谱面预览（/预览 系列，重写）
