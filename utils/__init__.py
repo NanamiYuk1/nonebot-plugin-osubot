@@ -6,24 +6,40 @@ GM = {
     1: "taiko",
     2: "fruits",
     3: "mania",
+    4: "osu",
+    5: "taiko",
+    6: "fruits",
+    8: "osu",
 }
 NGM = {
     "0": "osu",
     "1": "taiko",
     "2": "fruits",
     "3": "mania",
+    "4": "rxosu",
+    "5": "rxtaiko",
+    "6": "rxfruits",
+    "8": "aposu",
 }
 GMN = {
     "osu": "Std",
     "taiko": "Taiko",
     "fruits": "Ctb",
     "mania": "Mania",
+    "rxosu": "RX Std",
+    "rxtaiko": "RX Taiko",
+    "rxfruits": "RX Ctb",
+    "aposu": "AP Std",
 }
 FGM = {
     "osu": 0,
     "taiko": 1,
     "fruits": 2,
     "mania": 3,
+    "rxosu": 4,
+    "rxtaiko": 5,
+    "rxfruits": 6,
+    "aposu": 8,
 }
 
 MODE_ALIASES = {
@@ -45,12 +61,27 @@ MODE_ALIASES = {
     "3": "3",
     "mania": "3",
     "m": "3",
+    "4": "4",
+    "rx": "4",
+    "rxstd": "4",
+    "rxosu": "4",
+    "5": "5",
+    "rxtaiko": "5",
+    "rxtk": "5",
+    "6": "6",
+    "rxcatch": "6",
+    "rxctb": "6",
+    "rxfruits": "6",
+    "8": "8",
+    "ap": "8",
+    "apstd": "8",
+    "aposu": "8",
 }
 
 
-def parse_mode(value: int | str) -> str | None:
+def parse_mode(value: int | str, allow_special: bool = False) -> str | None:
     mode = MODE_ALIASES.get(str(value).strip().lower())
-    if mode is None or mode not in {"0", "1", "2", "3"}:
+    if mode is None or not allow_special and mode not in {"0", "1", "2", "3"}:
         return None
     return mode
 
@@ -86,6 +117,12 @@ def normalize_map_mode(requested_mode: int | str, native_mode: int, source: str 
     if native_mode == 0:
         # Standard beatmaps may be converted to other rulesets.
         return str(requested)
+    if source != "ppysb":
+        return str(native_mode)
+    if requested in {4, 5, 6}:
+        # Preserve the RX category while selecting the map's actual ruleset.
+        return str({1: 5, 2: 6}.get(native_mode, native_mode))
+    # AP only exists for standard; mania has no RX/AP category either.
     return str(native_mode)
 
 

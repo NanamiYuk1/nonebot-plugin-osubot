@@ -11,7 +11,7 @@ from ..schema import Beatmap, NewScore
 from ..exceptions import NetworkError
 from ..mods import get_mods_list, get_speed_change_labels
 from ..schema.score import UnifiedScore, NewStatistics, get_score_version
-from ..api import osu_api, get_user_info_data
+from ..api import osu_api, get_user_info_data, get_ppysb_map_scores
 from ..file import download_osu, get_pfm_img, map_path
 from .score import cal_score_info
 from .static import ColorArr
@@ -91,8 +91,11 @@ async def draw_score_history(
     mode = NGM[normalize_map_mode(FGM[mode], native_mode, source)]
     info_task = asyncio.create_task(get_user_info_data(uid, mode, source))
 
-    response = await osu_api("score", uid, mode, map_id, legacy_only=int(not is_lazer))
-    scores = [_to_unified_score(NewScore(**item)) for item in response.get("scores", [])]
+    if source == "osu":
+        response = await osu_api("score", uid, mode, map_id, legacy_only=int(not is_lazer))
+        scores = [_to_unified_score(NewScore(**item)) for item in response.get("scores", [])]
+    else:
+        scores = await get_ppysb_map_scores(map_json["checksum"], uid, mode)
 
     if mods:
         if mods == ["NM"]:
@@ -155,7 +158,7 @@ async def draw_score_history(
                 "speed_changes": speed_changes,
                 "judgements": _judgements(score),
                 "date": score.ended_at.strftime("%Y.%m.%d %H:%M"),
-                "score_version": score.score_version,
+                "score_version": score.score_version if source == "osu" else None,
             }
         )
 
@@ -164,11 +167,15 @@ async def draw_score_history(
     statistics = info.statistics.model_dump() if info.statistics else {}
     map_star_color, map_star_text = _star_style(beatmap.difficulty_rating)
     data = {
-        "source": "osu!",
+        "source": "ppysb" if source == "ppysb" else "osu!",
         "score_version": "Stable" if not is_lazer else "Lazer + Stable",
         "mode": mode,
         "generated_at": datetime.now().strftime("%Y/%m/%d %H:%M:%S"),
-        "disclaimer": "每种 Mod 组合显示 osu! API 当前保留的最佳成绩，不代表全部历史尝试",
+        "disclaimer": (
+            "每种 Mod 组合显示 osu! API 当前保留的最佳成绩，不代表全部历史尝试"
+            if source == "osu"
+            else "显示 ppysb API 当前可返回的谱面成绩"
+        ),
         "user": {
             "id": info.id,
             "name": info.username,

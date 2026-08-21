@@ -41,6 +41,13 @@ class InfoData(Model):
     badge_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
 
+class SbUserData(Model):
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(Text, index=True)
+    osu_id: Mapped[int] = mapped_column(Integer)
+    osu_name: Mapped[str] = mapped_column(Text)
+
+
 class UserOAuthData(Model):
     """每个绑定用户的 osu! OAuth 用户级令牌（/friend 好友功能使用）。"""
 

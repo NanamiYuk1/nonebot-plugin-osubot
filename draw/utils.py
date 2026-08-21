@@ -218,8 +218,12 @@ async def open_user_icon(info: UnifiedUser, source) -> Image:
             break
     else:
         user_icon = await get_projectimg(info.avatar_url)
-        with open(path / f"icon.{info.avatar_url.split('.')[-1]}", "wb") as f:
-            f.write(user_icon.getvalue())
+        if source == "ppysb":
+            with open(path / "sb_icon.png", "wb") as f:
+                f.write(user_icon.getvalue())
+        else:
+            with open(path / f"icon.{info.avatar_url.split('.')[-1]}", "wb") as f:
+                f.write(user_icon.getvalue())
         img = Image.open(user_icon)
     return img
 

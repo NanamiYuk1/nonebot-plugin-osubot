@@ -2,11 +2,8 @@
 
 > 本项目由 [yaowan233/nonebot-plugin-osubot](https://github.com/yaowan233/nonebot-plugin-osubot) 修改而来，
 > 在原插件基础上新增了谱面预览（Rust 二进制渲染）、谱面试听、好友互关、成就查询/推荐等指令，
-> 并重写了部分指令的渲染与发送方式。原项目全部指令与功能请查阅上方源项目仓库。
->
-> ⚠️ **与原项目的差异（已移除）**：本 fork 已**移除全部 ppysb（ppy.sb）服务器查询功能**——
-> `/sbbind`、`/sbunbind` 指令、查询末尾的 `&sb` 后缀、RX/AP（模式 4/5/6/8）查询分类、
-> `SbUserData` 绑定表及 ppy.sb 相关 API 均已删除；查询仅支持 osu! 官方数据源（模式 0-3）。
+> 并重写了部分指令的渲染与发送方式。原项目全部指令与功能均完整保留（包括 ppysb 服务器查询：
+> `/sbbind`、`/sbunbind` 绑定、查询末尾的 `&sb` 后缀、RX/AP 模式 4/5/6/8 分类，详见源项目仓库）。
 >
 > 谱面预览渲染核心来自 [osu-beatmap-preview](https://github.com/2710165659/osu-beatmap-preview)，
 > 二进制由 [astrbot_plugin_osu_beatmap_preview](https://github.com/2710165659/astrbot_plugin_osu_beatmap_preview) 提供（详见下文「预览渲染核心配置」）。
