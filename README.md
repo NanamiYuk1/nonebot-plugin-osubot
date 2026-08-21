@@ -1,269 +1,219 @@
-<div align="center">
-  <a href="https://v2.nonebot.dev/store"><img src="https://github.com/A-kirami/nonebot-plugin-template/blob/resources/nbp_logo.png" width="180" height="180" alt="NoneBotPluginLogo"></a>
-  <br>
-  <p><img src="https://github.com/A-kirami/nonebot-plugin-template/blob/resources/NoneBotPlugin.svg" width="240" alt="NoneBotPluginText"></p>
-</div>
+# nonebot-plugin-osubot（个人修改版）
+
+> 本项目由 [yaowan233/nonebot-plugin-osubot](https://github.com/yaowan233/nonebot-plugin-osubot) 修改而来，
+> 在原插件基础上新增了谱面预览（Rust 二进制渲染）、谱面试听、好友互关、成就查询/推荐等指令，
+> 并重写了部分指令的渲染与发送方式。原项目全部指令与功能均完整保留（包括 ppysb 服务器查询：
+> `/sbbind`、`/sbunbind` 绑定、查询末尾的 `&sb` 后缀、RX/AP 模式 4/5/6/8 分类，详见源项目仓库）。
+>
+> 谱面预览渲染核心来自 [osu-beatmap-preview](https://github.com/2710165659/osu-beatmap-preview)，
+> 二进制由 [astrbot_plugin_osu_beatmap_preview](https://github.com/2710165659/astrbot_plugin_osu_beatmap_preview) 提供（详见下文「预览渲染核心配置」）。
+
+---
+
+## 扫码添加已部署的 OsuBot
 
 <div align="center">
-
-# nonebot-plugin-osubot
-
-_✨ 面向 NoneBot2 的 osu! 查询与谱面工具插件 ✨_
-
-
-<a href="./License">
-    <img src="https://img.shields.io/github/license/yaowan233/nonebot-plugin-osubot.svg" alt="license">
-</a>
-<a href="https://pypi.python.org/pypi/nonebot-plugin-osubot">
-    <img src="https://img.shields.io/pypi/v/nonebot-plugin-osubot.svg" alt="pypi">
-</a>
-<a href="https://codecov.io/gh/yaowan233/nonebot-plugin-osubot">
-    <img src="https://codecov.io/gh/yaowan233/nonebot-plugin-osubot/branch/master/graph/badge.svg" alt="codecov">
-</a>
-<img src="https://img.shields.io/badge/python-3.10+-blue.svg" alt="python">
-
+  <img src="https://i.ibb.co/dwTj8q1R/qq.jpg" alt="qq Bot" width="300" />
+  <p> 扫码添加已部署的OsuBot
+  （该bot存在其他功能，若只需要该项目查询，可自行部署服务）</p>
 </div>
 
+## 环境要求与依赖
 
-## 📖 介绍
+- **Python 3.10 ~ 3.13**（与源项目一致；代码使用了 `str | None` 等新语法）
+- **NoneBot2 ≥ 2.3.0**，以及以下 NoneBot 插件（均为源项目已有依赖，新增功能未引入新的硬依赖）：
+  - `nonebot-plugin-alconna`、`nonebot-plugin-session`、`nonebot-plugin-apscheduler`、`nonebot-plugin-waiter`、`nonebot-plugin-uninfo`
+  - `nonebot-plugin-orm`：使用 SQLite，首次启动自动建表并执行迁移（好友功能的 `UserOAuthData` 令牌表也由迁移创建）
+  - `nonebot-plugin-htmlrender[playwright]`：图片渲染使用 Playwright，需安装浏览器 `playwright install chromium`
+  - `nonebot-plugin-ai-groupmate`（可选）：启用后 AI 群友可直接调用本插件的查询/渲染工具
+  - 其他 Python 库：`pillow`、`httpx`、`expiringdict`、`matplotlib`、`rosu-pp-py`、`osu-tools-py`、`rhythmgame-tools`
+- **驱动**：推荐 `DRIVER=~fastapi+~httpx`——`/friend` 的 OAuth 回调需要 FastAPI / Quart 驱动自动挂载路由；其他驱动仍可用 `/frbind <code>` 手动完成授权
+- **ffmpeg**：仅在回退到旧浏览器渲染链路、且生成完整预览视频时需要（二进制渲染不依赖 ffmpeg）
+- **osu-beatmap-preview 二进制**（可选但推荐）：`/预览`、`/谱面猜歌` 的二进制渲染核心，未配置时自动回退旧浏览器链路，见「预览渲染核心配置」
+- **osu! API 凭据**：`OSU_CLIENT` / `OSU_KEY`，或 `OSU_OAUTH_CLIENT_ID` / `OSU_OAUTH_CLIENT_SECRET`（见「.env 配置方法」）
 
-nonebot-plugin-osubot 提供 osu! 四种模式的玩家资料、成绩、BP 分析、群内排名、多人比赛分析、谱面信息与谱面预览等功能。查询结果以适合聊天场景的图片呈现，并通过 `nonebot-plugin-uninfo` 获取跨适配器的用户、群组与频道信息。
+### 安装
 
-项目修改自 [osuv2](https://github.com/Yuri-YuzuChaN/osuv2)，并针对 NoneBot2 的命令交互、绘图和多平台使用进行了持续维护。
+将本仓库 clone / 下载后，整个文件夹放入 NoneBot 项目的 `plugins/` 目录即可（本仓库即插件包本体，未打包为独立发行版）；随后按「.env 配置方法」填写配置并重启机器人。
 
-> [!IMPORTANT]
-> 谱面变速和完整视频预览依赖 [FFmpeg](https://ffmpeg.org/download.html)。请先安装 FFmpeg 并确保可从 `PATH` 调用，或通过 `OSU_PREVIEW_FFMPEG_PATH` 指定可执行文件。
+---
 
-## 💿 安装
+## /osuhelp 帮助详情
 
-运行环境：Python 3.10–3.13、NoneBot2 2.3.0 及以上版本。
+<div align="center">
+  <img src="osufile/detail.png" alt="/osuhelp 帮助详情" width="600" />
+  <p> 发送 /osuhelp 查看完整指令帮助（图片随本仓库代码更新自动换图）
+  图片源文件为 osufile/detail.png，修改 osufile/help.html 后运行 osufile/gen_help_png.py 重新生成并提交即可</p>
+</div>
 
-<details>
-<summary>使用 nb-cli 安装（推荐）</summary>
+## 新增 / 改动的指令
 
-在 nonebot2 项目的根目录下打开命令行, 输入以下指令即可安装
+### 谱面预览（/预览 系列，重写）
 
-```bash
-nb plugin install nonebot-plugin-osubot
+渲染优先调用 Rust 二进制 `osu-beatmap-preview`（速度快、带谱面音频），未配置或渲染失败时自动回退旧的浏览器渲染链路。
+
+| 指令 | 说明 |
+| --- | --- |
+| `/预览 [mapid]:[模式]` | 生成预览图：std 输出 GIF，taiko / catch / mania 输出 PNG |
+| `/预览 [mapid] +GIF` | 生成约 10 秒的动态 GIF 预览（任意模式） |
+| `/完整预览 [mapid]` | 生成完整预览视频（MP4） |
+| `/视频预览 [mapid]`、`/vpreview`、`/vp` | 同上，完整视频（MP4） |
+
+- 先查询过谱面后可以省略 mapid，自动复用最近查询的谱面；`:模式` 用 `0/1/2/3` 或 `o/t/c/m`，非 std 谱面自动使用原生模式。
+- std 预览会附带 [beatmap.try-z.net](https://beatmap.try-z.net) 的在线点击预览链接。
+- 完整视频渲染耗时较长，中途会发送预计等待时间；首次渲染会写入缓存（`data/osu/<setid>/preview/`），下次秒出。
+- 相关配置：`OSU_PREVIEW_BIN_PATH` 等，见下方「.env 配置方法」和「预览渲染核心配置」。
+
+### 谱面猜歌（/谱面猜歌，改造）
+
+- 渲染方式统一走 `render_preview`：std 出 GIF，taiko / mania 出 PNG，catch 出 PNG 且带上该成绩的真实 Mods。
+- 其余游戏规则不变：抽选自群内绑定玩家的 BP，`/谱面提示` 提供提示，猜对或超时（5 分钟）结束并公布答案。
+
+### 谱面试听（新增）
+
+- `/au [mapid]`：发送该谱面的试听语音（🎵 谱面试听）。
+- 不带 ID 时复用最近查询的谱面（先按 bid 转 sid 拉取，失败再按 sid 直接拉取）。
+
+### 好友与互关（新增）
+
+需要 osu! OAuth 用户级授权（`friends.read`），每个绑定用户各自授权、各自持有令牌。
+
+| 指令 | 说明 |
+| --- | --- |
+| `/friend`、`/f` | 查看自己的全部好友列表（默认全部展示，无条数上限，图片输出） |
+| `/f :pp` | 按 PP 排序；`:acc` / `:pc` / `:pt` / `:th` / `:t` / `:u` / `:c` / `:n` / `:o` / `:m` 同理，后缀 `+` 或 `2` 升序、`-` 降序 |
+| `/f 1-30` | 查看第 1-30 位好友（范围） |
+| `/f pp>=300 mutual=true country=JP` | 组合筛选（数值比较 + 布尔条件） |
+| `/f <玩家名>` | 查询与对方是否互关（mutual，双方都授权时最准确） |
+
+### OAuth 授权（新增）
+
+- `/frbind`、`/fb`、`/好友授权`：生成 osu! OAuth 授权链接。
+- 授权完成后自动回调绑定（FastAPI / Quart 驱动自动挂载 `/osubot/oauth/callback` 路由）。
+- 回调地址不可达时，把授权后浏览器地址栏里的 `code=...`（或完整网址）发给机器人即可：`/frbind <code>`。
+- `/bind` 绑定成功后，回复里也会附带授权链接，可直接点击授权。
+
+### 成就（新增）
+
+- `/myach [模式]`、`/我的成就`：以图片输出自己已获得的成就（按获得时间倒序）。模式：`o/t/c/m` 或 `osu/taiko/catch/mania`，默认 osu。
+- `/achrec [模式]`、`/成就推荐`：根据已获得成就推荐 15 个未获得成就（图片 + 中文攻略）。
+- `/md <成就名>`（原指令增强）：优先使用本地中文攻略目录（`osufile/medals/medals.json`），并附带相关谱面建议。
+
+### 多人比赛（重写）
+
+- `/mp <match id / room id>`、`/match`：多人比赛结果改为多页图片渲染；OB11 下优先合并转发（`send_group_forward_msg`），失败自动逐张重试发送。
+- `/rt <match id / room id>`、`/rating`：多页 rating 图片顺序发送，补齐参数校验、异常捕获与友好错误提示。
+- **支持 Lazer 多人房 room id 查询**（也兼容 stable mp 的 match id）：查询时自动尝试 `/matches/` 接口，失败后回退 `/rooms/` 接口。
+- Lazer 房间支持 **head-to-head、team-vs（tag-team-vs）** 等模式：自动从房间 events 接口解析红蓝分队、剔除被强制关闭（abort）的对局；同一房间中途切换模式（如热身 head-to-head → 正赛 team-vs）时按模式分别渲染。
+
+### 其他改动
+
+- `/osuhelp`：帮助图直接展示详情页（`osufile/help.png` / `detail.png`）；修改 `osufile/help.html` 后可用 `osufile/gen_help_png.py` 重新生成。
+- `/pr` `/pl` `/re` `/rl`：修复独立序号解析、Mods / 筛选条件下拉取窗口不足导致结果缺失的问题。
+- `/nb N`：裸数字现在作为「N 天内新增 BP」的时间窗口（原为 BP 序号）。
+- `/mu`：头像获取异常兜底；`/osudl`：下载失败友好提示；`/rank`：会话缺失时的兼容修复。
+- API 层：凭据支持 OAuth 应用回退、401 自动刷新令牌重试、422 友好提示、过滤缺少 beatmap 信息的成绩。
+- `fix_duplicated_files.py`：清理重复上传产生的「(1)」后缀文件的小工具（`python fix_duplicated_files.py --dry-run` 预览，`--dir` 指定目录）。
+
+---
+
+## .env 配置方法
+
+NoneBot 项目的 `.env`（机器人根目录，不是插件目录）。新增配置项如下，原项目已有的 `OSU_CLIENT` / `OSU_KEY` / `OSU_PROXY` / `OSUTRACK_*` / `OSU_RECOMMEND_*` 照旧。
+
+```ini
+# ===== osu! API 凭据（必填，二选一）=====
+OSU_CLIENT=你的osu客户端ID
+OSU_KEY=你的osu客户端密钥
+# —— 或使用 osu! OAuth 应用凭据（client_credentials 同样可用于 API 请求）——
+OSU_OAUTH_CLIENT_ID=你的OAuth应用ID
+OSU_OAUTH_CLIENT_SECRET=你的OAuth应用密钥
+
+# ===== 好友功能 OAuth（/friend、/frbind）=====
+# 必填：回调地址。必须为公网可访问的 HTTPS（osu! 仅允许 https 或 http://localhost），
+# 且需在 osu! OAuth 应用设置里登记。回调路径固定为 /osubot/oauth/callback。
+OSU_OAUTH_REDIRECT_URI=https://你的公网域名/osubot/oauth/callback
+
+# ===== 谱面预览（/预览、/谱面猜歌）=====
+# 必配：Rust 渲染二进制（osu-beatmap-preview）的绝对路径。
+# config.py 默认值为 None（未配置）；不配置时 /预览 自动回退旧浏览器渲染链路。
+OSU_PREVIEW_BIN_PATH=C:/path/to/osu-beatmap-preview-windows-amd64.exe
+OSU_PREVIEW_USE_CORE=true      # 是否启用二进制渲染（默认 true）
+OSU_PREVIEW_FALLBACK=true      # 二进制缺失/失败时是否回退旧浏览器链路（默认 true）
+OSU_PREVIEW_TIMEOUT=120        # gif/png 单次渲染超时（秒，默认 120）
+OSU_PREVIEW_VIDEO_TIMEOUT=300  # 完整 mp4 渲染超时（秒，默认 300）
+
+# —— 以下为旧浏览器链路的可选参数（回退渲染时生效，不配则用默认值）——
+# OSU_PREVIEW_FFMPEG_PATH=      # ffmpeg 绝对路径；不配则自动找 PATH 里的 ffmpeg
+# OSU_PREVIEW_TAIKO_SKIN_PATH=  # taiko 皮肤目录（读取 taiko-roll-*.png 等素材）
+# OSU_PREVIEW_FULL_SCALE=0.75   # 完整视频缩放（0.5-1.0）
+# OSU_PREVIEW_FULL_FRAME_INTERVAL=30      # 完整视频帧间隔 ms（20-50）
+# OSU_PREVIEW_TAIKO_FULL_SCALE=0.5
+# OSU_PREVIEW_TAIKO_FULL_FRAME_INTERVAL=30
+# OSU_PREVIEW_STD_CATCH_FULL_SCALE=0.5
+# OSU_PREVIEW_STD_CATCH_FULL_FRAME_INTERVAL=30
+
+# ===== 好友功能（预留，当前版本未使用）=====
+# OSU_FRIEND_PAGE_SIZE=20
+# OSU_FRIEND_MAX_PAGE=100
 ```
 
-</details>
+> 依赖说明：新增功能未引入新的硬依赖（Pillow、Jinja2、Playwright、expiringdict 均为原项目已有依赖）。
+> 好友回调路由需要 FastAPI 或 Quart 驱动（`DRIVER=~fastapi+~httpx`）；其他驱动仍可用 `/frbind <code>` 手动完成授权。
 
-<details>
-<summary>使用包管理器安装</summary>
-在 nonebot2 项目的插件目录下, 打开命令行, 根据你使用的包管理器, 输入相应的安装命令
+---
 
-<details>
-<summary>pip</summary>
+## 预览渲染核心（astrbot_plugin_osu_beatmap_preview）配置与调用路径修改
 
-```bash
-pip install nonebot-plugin-osubot
+### 原理
+
+`/预览`、`/谱面猜歌` 的谱面渲染并不是通过那个 AstrBot 插件本身完成的，而是**直接调用 Rust 二进制 `osu-beatmap-preview`**：
+
+```
+osu-beatmap-preview --bid <bid> --fmt <png|gif|mp4> [--convert taiko|ctb|mania] [--mods hd+hr] ...
+# stdout 输出 JSON，产物绝对路径在 "preview-img" 字段
 ```
 
-</details>
-<details>
-<summary>pdm</summary>
+`astrbot_plugin_osu_beatmap_preview` 仓库只是「AstrBot 平台」的插件封装，我们只用到它 `bin/` 目录里提供的四个平台二进制。调用路径由配置项 `osu_preview_bin_path`（`OSU_PREVIEW_BIN_PATH`）决定。
 
-```bash
-pdm add nonebot-plugin-osubot
-```
+### 配置步骤
 
-</details>
-<details>
-<summary>poetry</summary>
+1. **获取二进制**（任选其一）：
+   - 方式 A：`git clone https://github.com/2710165659/astrbot_plugin_osu_beatmap_preview.git`，使用其 `bin/` 目录下对应平台的二进制；
+   - 方式 B：直接到 [osu-beatmap-preview Releases](https://github.com/2710165659/osu-beatmap-preview/releases) 下载：
+     - Windows：`osu-beatmap-preview-windows-amd64.exe`
+     - Linux：`osu-beatmap-preview-linux-amd64`
+     - macOS Intel：`osu-beatmap-preview-macos-amd64`；Apple Silicon：`osu-beatmap-preview-macos-arm64`
+   - 方式 C：在 AstrBot 里安装该插件后运行其 `update_core.bat`，会自动把四个平台的二进制下载到插件 `bin/` 目录。
+2. **赋予执行权限**（仅 Linux / macOS）：`chmod +x osu-beatmap-preview-linux-amd64`
+3. **配置调用路径**（二选一）：
+   - **推荐：在 `.env` 里覆盖（不改代码）**
+     ```ini
+     OSU_PREVIEW_BIN_PATH=C:/absolute/path/to/osu-beatmap-preview-windows-amd64.exe
+     ```
+   - 或者修改 `config.py` 中 `osu_preview_bin_path` 的默认值（默认已为 `None`；注意改动会随代码提交到仓库）。
+4. **验证**：`/预览 <mapid>` 正常出图即可。二进制缺失、超时或非零退出时，插件会按 `OSU_PREVIEW_FALLBACK` 配置回退旧浏览器链路，并在日志（logger：`nonebot_plugin_osubot.core_preview`）中输出原因。
 
-```bash
-poetry add nonebot-plugin-osubot
-```
+### 二进制支持的参数（与 astrbot 插件文档一致）
 
-</details>
+| 参数 | 说明 |
+| --- | --- |
+| `--bid <id>` | 谱面 ID（必填） |
+| `--fmt png\|gif\|mp4` | 输出格式 |
+| `--convert taiko\|ctb\|mania` | 模式转换（std 不需要） |
+| `--mods hd+hr` | Mods，小写、`+` 连接 |
+| `--time t1+t2` | 片段起止时间（秒），完整 mp4 不要传 |
+| `--preview-30s` | 渲染 PreviewTime 附近约 30 秒（视频默认行为） |
+| `--gif-clip` / `--gif-clip-label` | 单屏连续 GIF / 带时间标签 |
+| `--gap <秒>` | 时间间隔 |
+| `--no-cache` | 跳过缓存 |
 
+---
 
-打开 nonebot2 项目的 `bot.py` 文件, 在其中写入
+## 许可证
 
-```python
-nonebot.load_plugin("nonebot_plugin_osubot")
-```
+本项目基于 [yaowan233/nonebot-plugin-osubot](https://github.com/yaowan233/nonebot-plugin-osubot)（同样为 **AGPL-3.0** 许可）修改而来，以 **GNU Affero General Public License v3.0（AGPL-3.0）** 开源。
 
-</details>
-
-
-## ⚙️ 配置
-
-前往 [osu! 账号设置](https://osu.ppy.sh/home/account/edit) 创建 OAuth 应用，将客户端 ID 和客户端密钥写入 NoneBot 项目的 `.env` 文件：
-
-```dotenv
-OSU_CLIENT=你的客户端ID
-OSU_KEY=你的客户端密钥
-```
-
-### 基础配置
-
-| 配置项 | 必填 | 默认值 | 说明 |
-| --- | :---: | --- | --- |
-| `OSU_CLIENT` | 是 | 无 | osu! OAuth 客户端 ID |
-| `OSU_KEY` | 是 | 无 | osu! OAuth 客户端密钥 |
-| `SQLALCHEMY_DATABASE_URL` | 否 | `sqlite+aiosqlite:///db.sqlite3` | 数据库地址，详见 [NoneBot ORM 配置](https://nonebot.dev/docs/best-practice/database/) |
-| `OSU_PROXY` | 否 | 无 | 请求 osu! API 时使用的代理地址或代理配置 |
-| `OSUTRACK_ENABLED` | 否 | `true` | 是否启用玩家信息定时追踪 |
-| `OSUTRACK_DEFAULT_DAYS` | 否 | `365` | 历史查询的默认追踪天数 |
-| `OSU_SCORE_HISTORY_ENABLED` | 否 | `true` | 是否采集官网排行榜无法查询的成绩历史 |
-| `OSU_SCORE_HISTORY_SYNC_HOUR` | 否 | `2` | 每日采集小时（服务器本地时间，0–23） |
-| `OSU_SCORE_HISTORY_CONCURRENCY` | 否 | `2` | 成绩采集并发数（1–20） |
-| `OSU_SCORE_HISTORY_RECENT_LIMIT` | 否 | `200` | 每个活跃用户/模式检查的最近成绩数（1–1000） |
-| `OSU_API_MAX_CONCURRENCY` | 否 | `8` | osu! API 总并发；至少为前台和后台各保留一个 worker |
-| `OSU_API_FOREGROUND_RATE` | 否 | `8.0` | 交互查询每秒启动的最大请求数 |
-| `OSU_API_BACKGROUND_RATE` | 否 | `1.0` | 历史采集每秒启动的最大请求数 |
-| `OSU_API_QUEUE_SIZE` | 否 | `512` | 前台、后台各自的最大等待队列长度 |
-| `OSU_API_MAX_RETRIES` | 否 | `3` | 网络错误、429 和 5xx 的最大重试次数 |
-| `OSU_RENDER_MAX_CONCURRENCY` | 否 | `2` | Playwright 同时执行的最大绘图数（1–16） |
-| `OSU_RENDER_QUEUE_SIZE` | 否 | `64` | Playwright 绘图等待队列的最大长度 |
-| `OSU_RENDER_QUEUE_TIMEOUT` | 否 | `30.0` | 绘图请求允许排队的最长秒数 |
-| `OSU_RENDER_TIMEOUT` | 否 | `180.0` | 单次 Playwright 绘图的最长执行秒数 |
-
-### 完整预览配置
-
-| 配置项 | 默认值 | 说明 |
-| --- | --- | --- |
-| `OSU_PREVIEW_FFMPEG_PATH` | `PATH` 中的 FFmpeg | FFmpeg 可执行文件路径 |
-| `OSU_PREVIEW_TAIKO_SKIN_PATH` | 无 | Taiko 皮肤目录，支持滚轮素材及其 `@2x` 版本；留空时使用内置样式 |
-| `OSU_PREVIEW_FULL_SCALE` | `0.75` | Mania 完整视频缩放倍率，范围 0.5–1.0 |
-| `OSU_PREVIEW_FULL_FRAME_INTERVAL` | `30` | Mania 完整视频帧间隔（毫秒），范围 20–50 |
-| `OSU_PREVIEW_TAIKO_FULL_SCALE` | `0.5` | Taiko 完整视频缩放倍率 |
-| `OSU_PREVIEW_TAIKO_FULL_FRAME_INTERVAL` | `30` | Taiko 完整视频帧间隔（毫秒） |
-| `OSU_PREVIEW_STD_CATCH_FULL_SCALE` | `0.5` | osu!/Catch 完整视频缩放倍率 |
-| `OSU_PREVIEW_STD_CATCH_FULL_FRAME_INTERVAL` | `30` | osu!/Catch 完整视频帧间隔（毫秒） |
-
-## ⚠️ 从 v6 升级到 v7
-
-v7 将底层 ORM 从 tortoise-orm 迁移至 nonebot-plugin-orm，**数据库表名和结构发生了变化**，升级前需手动执行迁移脚本，否则数据将丢失。
-
-**升级步骤：**
-
-1. 停止 bot
-2. 在 bot 根目录下运行迁移脚本：
-
-```bash
-# 默认 SQLite（自动从 .env 读取数据库地址）
-python migrate.py
-
-# 或手动指定数据库地址
-python migrate.py sqlite:///db.sqlite3
-python migrate.py postgresql://user:pass@localhost/dbname
-python migrate.py mysql+pymysql://user:pass@localhost/dbname
-```
-
-3. 标记迁移版本：
-
-```bash
-nb orm stamp 68a04ea31d05
-```
-
-4. 升级插件后重启 bot
-
-## 🎉 使用
-
-首次使用请发送 `/bind <用户名、UID 或主页链接>` 绑定账号。发送 `/osuhelp` 可查看交互式帮助，发送 `/osuhelp 全部` 可查看完整指令说明。
-
-通用格式：
-
-```text
-/命令 [玩家] [序号或范围]:[模式] [+Mods] [&sb]
-```
-
-模式简称：`o`/`0` = osu!、`t`/`1` = Taiko、`c`/`2` = Catch、`m`/`3` = Mania。未指定玩家或模式时，使用当前用户绑定账号的默认设置。官网成绩查询默认包含 lazer 与 stable 成绩，无需切换；成绩图会逐条标注来源。
-
-### 常用指令
-
-| 分类 | 指令 | 说明 |
-| --- | --- | --- |
-| 账号 | `/bind`、`/unbind`、`/mode` | 绑定账号与设置默认模式 |
-| 资料 | `/info`、`/mu`、`/rank`、`/update` | 玩家资料、主页、群内 PP 排名和资料刷新 |
-| 最佳成绩 | `/bp`、`/bl`、`/nb`、`/bpa` | 单条 BP、BP 列表、新增 BP 与 BP 分析 |
-| 第一名成绩 | `/first [序号或范围]` | 查询玩家在谱面排行榜上的第一名成绩（仅 osu! 官网） |
-| 最近成绩 | `/re`、`/rl`、`/pr`、`/pl` | 最近游玩、最近通过成绩及其列表 |
-| 谱面成绩 | `/sc [mapid]`、`/sl [mapid]` | 查询单条成绩，或列出该谱面各 Mod 组合的最佳成绩 |
-| 历史 | `/hs [#天数]` | 查询 PP 与排名历史 |
-| 谱面 | `/m`、`/bm`、`/bg`、`/dl` | 难度信息、谱面集、背景与谱面下载 |
-| 预览 | `/预览`、`/完整预览`、`/vp` | 普通预览、全谱预览和完整预览视频 |
-| 多人 | `/mp <matchid>`、`/rt <matchid>` | 多人比赛详情与多人房评分 |
-| 其他 | `/推荐`、`/md`、猜歌指令 | 谱面推荐、成就查询与猜歌游戏 |
-
-示例：
-
-```text
-/bind peppy
-/bp 5:o +HDHR
-/bl 31-60:m
-/first peppy 1-20:o
-/sc 3783810
-/sl 3783810
-/bpa
-/预览 3783810 +gif
-/完整预览 3783810
-/mp 123456789
-```
-
-查询过一张谱面后，`/m`、`/bm`、`/sc`、`/bg`、`/预览`、`/dl` 等指令可以省略 ID，复用最近查询的谱面。
-
-### ppysb 查询
-
-使用 `/sbbind <玩家>` 绑定 ppysb 账号，然后在普通查询末尾添加 `&sb`，例如 `/info &sb`、`/bl:4 &sb`。SB 模式 `0`–`3` 对应四种常规模式，`4`–`6` 对应 Relax，`8` 对应 Autopilot。
-
-### AI 自然语言调用（可选）
-
-如果同一个 NoneBot 项目中安装并加载了 `nonebot-plugin-ai-groupmate`，本插件会自动向 ai-groupmate 注册 osu 查询工具。用户可以通过自然语言让 AI 调用 osubot 的查询能力，而不是直接输入固定命令。
-
-没有安装或没有加载 `nonebot-plugin-ai-groupmate` 时，本功能会自动跳过，不影响 osubot 原有指令使用。
-
-示例：
-
-```text
-@bot 查我的 bp1
-@bot 查我的榜一 1-20
-@bot 查我的 info
-@bot 查 peppy 的 bp1
-@bot 查 WhiteCat 的 bp 1-20
-@bot 查 @群友 的 bp1
-@bot 查我在 3783810 这张图上的成绩
-@bot 查我 Freedom Dive 这张图打了多少
-@bot 查我的 pp 历史
-@bot 分析我的 bp 构成
-@bot 给我推荐谱面
-@bot 发一下我的 osu 主页
-@bot 查 match 123456789
-@bot 查 match 123456789 的 rating
-@bot 预览谱面 3783810
-@bot 提取谱面 3783810 的背景
-@bot 查成就 Non-stop Dancer
-```
-
-账号与模式规则：
-
-- 用户说“我/我的/自己”或未指定玩家时，使用当前发言用户通过 `/bind` 绑定的 osu 账号。
-- 消息里 `@群友` 时，优先使用被 @ 群友绑定的 osu 账号。
-- 查询绑定用户时会使用绑定记录中的默认模式，官网成绩默认包含 lazer 与 stable 成绩。
-- 明确指定 osu 用户名时会查询该玩家并优先使用其 osu! 默认游玩模式；也可以在自然语言里明确指定 `std`、`taiko`、`ctb` 或 `mania` 覆盖默认值。
-- 只提供歌名、艺术家、谱师或难度名查询成绩时，AI 会优先匹配准确标题和难度名：只有一个难度有成绩时直接发送成绩图，多个难度有成绩时发送与 BP 列表相同风格的图片列表。
-- 按名称查询成绩时也支持直接评价发挥：图片照常发送，AI 使用工具返回的结构化成绩分析，不再回读图片。
-- AI 查询 BP 范围或筛选列表时也遵循同一规则：筛选结果只有一条就发送单张成绩图，多条才发送列表图。
-
-如果用户只是要求查询，AI 会调用工具发出图片后结束；如果用户同时要求评价，例如：
-
-```text
-@bot 查我的 bp1，我打得怎么样
-@bot 分析一下 @群友 的 bp1
-@bot 看看我 recent 发挥如何
-@bot 评价一下我的 bp1-200
-```
-
-评价/分析类请求，工具会直接把 osu API 返回的结构化数据（成绩、玩家资料、pp/rank 历史、推荐谱面、比赛评分等）转成文本返回给 AI，AI 基于这些数据给出评价；图片只作为发给用户的展示物，不作为 AI 的分析数据源。因此即使主聊天模型不支持图片输入（非多模态），也能正常完成分析，无需依赖图片回读。
-
-分析整体 BP（如 bp1-200）时，AI 会先发送 BP 列表图，再分页读取各段 BP 的结构化数据（每次最多 20 条）进行整体评价。
-
-
-## 💡 贡献
-
-如果遇到任何问题，欢迎提各种issue来反馈bug
-你也可以加群(228986744)来进行反馈！
-![1665504476458_temp_qrcode_share_9993](https://user-images.githubusercontent.com/30517062/195143643-5c212f4e-5ee2-49fd-8e71-4f360eef2d46.png)
+- 完整许可证文本见 [LICENSE](LICENSE)
+- 依据 AGPL-3.0 要求：使用、修改、分发本项目（包括以网络服务形式部署）时，须以相同许可证向使用者提供源代码
+- 谱面预览渲染核心 [osu-beatmap-preview](https://github.com/2710165659/osu-beatmap-preview) 及其 AstrBot 封装 [astrbot_plugin_osu_beatmap_preview](https://github.com/2710165659/astrbot_plugin_osu_beatmap_preview) 的许可证以各自仓库为准

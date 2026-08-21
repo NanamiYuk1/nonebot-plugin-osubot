@@ -1,0 +1,60 @@
+from datetime import date, datetime
+from typing import Optional
+
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Float, Integer, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from nonebot_plugin_orm import Model
+
+
+class UserData(Model):
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(Text, index=True)
+    osu_id: Mapped[int] = mapped_column(Integer)
+    osu_name: Mapped[str] = mapped_column(Text)
+    osu_mode: Mapped[int] = mapped_column(Integer)
+    # 已弃用：仅保留该列以兼容现有数据库，查询逻辑不再读取它。
+    lazer_mode: Mapped[Optional[bool]] = mapped_column(Boolean, default=True)
+
+
+class InfoData(Model):
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    osu_id: Mapped[int] = mapped_column(Integer)
+    c_rank: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    g_rank: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    pp: Mapped[float] = mapped_column(Float)
+    acc: Mapped[float] = mapped_column(Float)
+    pc: Mapped[int] = mapped_column(Integer)
+    count: Mapped[int] = mapped_column(Integer)
+    osu_mode: Mapped[int] = mapped_column(Integer)
+    date: Mapped[date] = mapped_column(Date)
+    ranked_score: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    total_score: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    max_combo: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    count_xh: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    count_x: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    count_sh: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    count_s: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    count_a: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    replays: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    play_time: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    badge_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+
+class SbUserData(Model):
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(Text, index=True)
+    osu_id: Mapped[int] = mapped_column(Integer)
+    osu_name: Mapped[str] = mapped_column(Text)
+
+
+class UserOAuthData(Model):
+    """每个绑定用户的 osu! OAuth 用户级令牌（/friend 好友功能使用）。"""
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(Text, index=True)  # 平台用户 ID（QQ 等）
+    osu_id: Mapped[int] = mapped_column(Integer)
+    osu_name: Mapped[str] = mapped_column(Text)
+    access_token: Mapped[str] = mapped_column(Text)
+    refresh_token: Mapped[str] = mapped_column(Text)
+    token_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

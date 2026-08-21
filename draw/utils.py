@@ -1,0 +1,782 @@
+import os
+import re
+import random
+import datetime
+from io import BytesIO
+from pathlib import Path
+from typing import Union, Optional
+from difflib import SequenceMatcher
+
+import numpy as np
+from PIL.ImageFile import ImageFile
+from PIL import Image, ImageDraw, ImageFilter, ImageEnhance, UnidentifiedImageError, ImageSequence
+
+from ..schema.user import UnifiedUser
+from ..schema import SeasonalBackgrounds
+from ..api import safe_async_get, get_seasonal_bg
+from .static import ColorArr
+from ..file import map_path, download_osu, get_projectimg, user_cache_path, team_cache_path
+
+
+def draw_fillet(img, radii):
+    # 画圆（用于分离4个角）
+    circle = Image.new("L", (radii * 2, radii * 2), 0)  # 创建一个黑色背景的画布
+    draw = ImageDraw.Draw(circle)
+    draw.ellipse((0, 0, radii * 2, radii * 2), fill=255)  # 画白色圆形
+    # 原图
+    img = img.convert("RGBA")
+    w, h = img.size
+    # 画4个角（将整圆分离为4个部分）
+    alpha = Image.new("L", img.size, 255)
+    alpha.paste(circle.crop((0, 0, radii, radii)), (0, 0))  # 左上角
+    alpha.paste(circle.crop((radii, 0, radii * 2, radii)), (w - radii, 0))  # 右上角
+    alpha.paste(circle.crop((radii, radii, radii * 2, radii * 2)), (w - radii, h - radii))  # 右下角
+    alpha.paste(circle.crop((0, radii, radii, radii * 2)), (0, h - radii))  # 左下角
+    # 白色区域透明可见，黑色区域不可见
+    img.putalpha(alpha)
+    return img
+
+
+def draw_fillet2(img, radii):
+    # 画圆（用于分离4个角）
+    circle = Image.new("L", (radii * 2, radii * 2), 0)  # 创建一个黑色背景的画布
+    draw = ImageDraw.Draw(circle)
+    draw.ellipse((0, 0, radii * 2, radii * 2), fill=255)  # 画白色圆形
+    # 原图
+    img = img.convert("RGBA")
+    w, h = img.size
+    # 创建一个透明度为50%的图像
+    enhancer = ImageEnhance.Brightness(img)
+    img = enhancer.enhance(0.5)
+    # 画4个角（将整圆分离为4个部分）
+    alpha = Image.new("L", img.size, 255)
+    alpha.paste(circle.crop((0, 0, radii, radii)), (0, 0))  # 左上角
+    alpha.paste(circle.crop((radii, 0, radii * 2, radii)), (w - radii, 0))  # 右上角
+    alpha.paste(circle.crop((radii, radii, radii * 2, radii * 2)), (w - radii, h - radii))  # 右下角
+    alpha.paste(circle.crop((0, radii, radii, radii * 2)), (0, h - radii))  # 左下角
+    # 模糊效果（BoxBlur 与 GaussianBlur 视觉相近，但速度快约 2.5 倍）
+    img = img.filter(ImageFilter.BoxBlur(radius=2))
+    # 白色区域透明可见，黑色区域不可见
+    img.putalpha(alpha)
+    return img
+
+
+def info_calc(n1: Optional[float], n2: Optional[float], rank: bool = False, pp: bool = False):
+    if not n1 or not n2:
+        return "", 0
+    num = n1 - n2
+    if num < 0:
+        if rank:
+            op, value = "↑", num * -1
+        elif pp:
+            op, value = "↓", num * -1
+        else:
+            op, value = "-", num * -1
+    elif num > 0:
+        if rank:
+            op, value = "↓", num
+        elif pp:
+            op, value = "↑", num
+        else:
+            op, value = "+", num
+    else:
+        op, value = "", 0
+    return [op, value]
+
+
+def draw_acc(img: Image, acc: float, mode: int):
+    if mode == 0:
+        insize = [60, 20, 7, 7, 5, 1]
+    elif mode == 1:
+        insize = [60, 15, 8, 8, 8, 1]
+    elif mode == 2:
+        insize = [85, 5, 4, 4, 1, 1]
+    else:
+        insize = [70, 10, 10, 5, 4, 1]
+    insizecolor = ["#ff5858", "#ea7948", "#d99d03", "#72c904", "#0096a2", "#be0089"]
+    # 2倍超采样后缩小，减少锯齿
+    scale = 2
+    w, h = 384 * scale, 288 * scale
+    canvas = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(canvas)
+    cx, cy = w // 2, h // 2
+    # 外圈：acc 占比，对应 matplotlib radius=1, width=0.20
+    outer_r = int(min(cx, cy) * 0.82)
+    outer_w = int(outer_r * 0.20)
+    # 内圈：命中分布，对应 matplotlib radius=0.80, width=0.05
+    inner_r = int(outer_r * 0.80)
+    inner_w = max(int(outer_r * 0.05), 1)
+    outer_box = [cx - outer_r, cy - outer_r, cx + outer_r, cy + outer_r]
+    inner_box = [cx - inner_r, cy - inner_r, cx + inner_r, cy + inner_r]
+    # PIL 角度：0=3点钟方向，顺时针；从12点钟开始用 -90
+    acc_deg = acc / 100 * 360
+    if acc_deg > 0:
+        d.arc(outer_box, start=-90, end=-90 + acc_deg, fill="#66cbfd", width=outer_w)
+    total = sum(insize)
+    angle = -90.0
+    for portion, color in zip(insize, insizecolor):
+        span = portion / total * 360
+        d.arc(inner_box, start=angle, end=angle + span, fill=color, width=inner_w)
+        angle += span
+    score_acc_img = canvas.resize((320, 240), Image.LANCZOS)
+    img.alpha_composite(score_acc_img, (612, 59))
+    return img
+
+
+async def crop_bg(size: tuple[int, int], path: Union[str, Path, BytesIO, Image.Image]):
+    if not isinstance(path, Image.Image):
+        try:
+            bg = Image.open(path).convert("RGBA")
+        except (UnidentifiedImageError, FileNotFoundError):
+            # Refactored: combine duplicate exception handling
+            if isinstance(path, (str, Path)) and Path(path).exists():
+                os.remove(path)
+            data = await get_seasonal_bg()
+            pic = SeasonalBackgrounds(**data)
+            url = random.choice(pic.backgrounds).url
+            res = await safe_async_get(url)
+            bg = Image.open(BytesIO(res.content)).convert("RGBA")
+    else:
+        bg = path
+    bg_w, bg_h = bg.size
+    fix_w, fix_h = size
+    # 固定比例
+    fix_scale = fix_h / fix_w
+    # 图片比例
+    bg_scale = bg_h / bg_w
+    # 当图片比例大于固定比例
+    if bg_scale > fix_scale:
+        # 长比例
+        scale_width = fix_w / bg_w
+        # 等比例缩放
+        width = int(scale_width * bg_w)
+        height = int(scale_width * bg_h)
+        sf = bg.resize((width, height))
+        # 计算上下裁切
+        crop_height = (height - fix_h) // 2
+        x1, y1, x2, y2 = 0, crop_height, width, height - crop_height
+        # 裁切保存
+        crop_img = sf.crop((x1, y1, x2, y2))
+        return crop_img
+    # 当图片比例小于固定比例
+    elif bg_scale < fix_scale:
+        # 宽比例
+        scale_height = fix_h / bg_h
+        # 等比例缩放
+        width = int(scale_height * bg_w)
+        height = int(scale_height * bg_h)
+        sf = bg.resize((width, height))
+        # 计算左右裁切
+        crop_width = (width - fix_w) // 2
+        x1, y1, x2, y2 = crop_width, 0, width - crop_width, height
+        # 裁切保存
+        crop_img = sf.crop((x1, y1, x2, y2))
+        return crop_img
+    else:
+        sf = bg.resize((fix_w, fix_h))
+        return sf
+
+
+def stars_diff(stars: float, stars_bg: ImageFile):
+    if stars < 0.1:
+        r, g, b = 170, 170, 170
+    elif stars >= 9:
+        r, g, b = 0, 0, 0
+    else:
+        # 颜色取色参考 https://github.com/ppy/osu-web/blob/97997d9c7b7f9c49f9b3cdd776c71afb9872c34b/resources/js/utils/beatmap-helper.ts#L20
+        r, g, b, _a = ColorArr[int(stars * 100)]
+    # 打开底图
+    xx, yy = stars_bg.size
+    # 填充背景
+    img = Image.new("RGBA", stars_bg.size, (r, g, b))
+    img.paste(stars_bg, (0, 0, xx, yy), stars_bg)
+    # 把白色变透明
+    arr = np.array(img)
+    # 创建mask，将白色替换为True，其他颜色替换为False
+    mask = (arr[:, :, 0] == 255) & (arr[:, :, 1] == 255) & (arr[:, :, 2] == 255)
+    # 将mask中为True的像素点的alpha通道设置为0
+    arr[:, :, 3][mask] = 0
+    # 将numpy数组转换回PIL图片
+    img = Image.fromarray(arr)
+    return img
+
+
+def calc_songlen(length: int) -> str:
+    map_len = list(divmod(int(length), 60))
+    map_len[1] = map_len[1] if map_len[1] >= 10 else f"0{map_len[1]}"
+    music_len = f"{map_len[0]}:{map_len[1]}"
+    return music_len
+
+
+async def open_user_icon(info: UnifiedUser, source) -> Image:
+    path = user_cache_path / str(info.id)
+    path.mkdir(parents=True, exist_ok=True)
+    for file_path in path.glob("icon*.*"):
+        # 检查文件是否为图片格式
+        if file_path.suffix.lower() in [".jpg", ".png", ".jpeg", ".gif", ".bmp"]:
+            img = Image.open(file_path)
+            break
+    else:
+        user_icon = await get_projectimg(info.avatar_url)
+        if source == "ppysb":
+            with open(path / "sb_icon.png", "wb") as f:
+                f.write(user_icon.getvalue())
+        else:
+            with open(path / f"icon.{info.avatar_url.split('.')[-1]}", "wb") as f:
+                f.write(user_icon.getvalue())
+        img = Image.open(user_icon)
+    return img
+
+
+def is_close(n1, n2) -> bool:
+    return abs(n1 - n2) < 0.01
+
+
+async def update_icon(info: UnifiedUser):
+    path = user_cache_path / str(info.id)
+    for file_path in path.glob("icon*.*"):
+        # 检查文件是否为图片格式
+        if file_path.suffix.lower() in [".jpg", ".png", ".jpeg", ".gif", ".bmp"]:
+            modified_time = file_path.stat().st_mtime
+            modified_datetime = datetime.datetime.fromtimestamp(modified_time)
+            time_diff = datetime.datetime.now() - modified_datetime
+            # 判断文件是否创建超过一天
+            if time_diff > datetime.timedelta(days=1):
+                file_path.unlink()
+                user_icon = await get_projectimg(info.avatar_url)
+                with open(path / f"icon.{info.avatar_url.split('.')[-1]}", "wb") as f:
+                    f.write(user_icon.getvalue())
+    if info.team:
+        team_path = team_cache_path / f"{info.team.id}.png"
+        if team_path.exists():
+            modified_time = team_path.stat().st_mtime
+            modified_datetime = datetime.datetime.fromtimestamp(modified_time)
+            time_diff = datetime.datetime.now() - modified_datetime
+            # 判断文件是否创建超过一天
+            if time_diff > datetime.timedelta(days=1):
+                team_path.unlink()
+                team_icon = await get_projectimg(info.team.flag_url)
+                with open(team_path, "wb") as f:
+                    f.write(team_icon.getvalue())
+
+
+async def update_map(set_id, map_id):
+    path = map_path / str(set_id)
+    for file_path in path.glob("*.osu"):
+        # 检查文件是否为图片格式
+        modified_time = file_path.stat().st_mtime
+        modified_datetime = datetime.datetime.fromtimestamp(modified_time)
+        time_diff = datetime.datetime.now() - modified_datetime
+        # 判断文件是否创建超过一天
+        if time_diff > datetime.timedelta(days=1):
+            await download_osu(set_id, map_id)
+
+
+def draw_rounded_rectangle(
+    draw: ImageDraw.Draw, xy: tuple[tuple[int, int], tuple[int, int]], corner_radius: int, fill: str = None
+) -> None:
+    upper_left_point = xy[0]
+    bottom_right_point = xy[1]
+
+    # 计算矩形的四个角的坐标
+    top_left = (upper_left_point[0], upper_left_point[1])
+    top_right = (bottom_right_point[0], upper_left_point[1])
+    bottom_left = (upper_left_point[0], bottom_right_point[1])
+    bottom_right = (bottom_right_point[0], bottom_right_point[1])
+
+    # 绘制四个角的四分之一圆
+    draw.pieslice(
+        [top_left, (top_left[0] + corner_radius * 2, top_left[1] + corner_radius * 2)], start=180, end=270, fill=fill
+    )
+    draw.pieslice(
+        [(top_right[0] - corner_radius * 2, top_right[1]), (top_right[0], top_right[1] + corner_radius * 2)],
+        start=270,
+        end=360,
+        fill=fill,
+    )
+    draw.pieslice(
+        [(bottom_left[0], bottom_left[1] - corner_radius * 2), (bottom_left[0] + corner_radius * 2, bottom_left[1])],
+        start=90,
+        end=180,
+        fill=fill,
+    )
+    draw.pieslice(
+        [
+            (bottom_right[0] - corner_radius * 2, bottom_right[1] - corner_radius * 2),
+            (bottom_right[0], bottom_right[1]),
+        ],
+        start=0,
+        end=90,
+        fill=fill,
+    )
+
+    # 绘制矩形填充四个圆角之间的空间
+    draw.rectangle(
+        [top_left[0] + corner_radius, top_left[1], bottom_right[0] - corner_radius, bottom_right[1]], fill=fill
+    )
+    draw.rectangle(
+        [top_left[0], top_left[1] + corner_radius, bottom_right[0], bottom_right[1] - corner_radius], fill=fill
+    )
+
+
+map_dict = {
+    "p": "pp",
+    "mapper": "creator",
+    "mp": "creator",
+    "谱师": "creator",
+    "length": "total_length",
+    "len": "total_length",
+    "l": "total_length",
+    "长度": "total_length",
+    "acc": "accuracy",
+    "a": "accuracy",
+    "准确率": "accuracy",
+    "精度": "accuracy",
+    "drain": "hp",
+    "star": "stars",
+    "sr": "stars",
+    "s": "stars",
+    "diff": "stars",
+    "difficulty": "stars",
+    "星": "stars",
+    "星数": "stars",
+    "combo": "max_combo",
+    "cb": "max_combo",
+    "c": "max_combo",
+    "连击": "max_combo",
+    "keys": "cs",
+    "key": "cs",
+    "k": "cs",
+    "键位": "cs",
+    "score": "total_score",
+    "sc": "total_score",
+    "分数": "total_score",
+    "评级": "rank",
+    "r": "rank",
+    "标题": "title",
+    "歌名": "title",
+    "t": "title",
+    "难度名": "version",
+    "v": "version",
+    "ver": "version",
+    "art": "artist",
+    "b": "bpm",
+    "mapid": "id",
+    "bid": "id",
+    "id": "id",
+    "sid": "set_id",
+    "setid": "set_id",
+    "set": "set_id",
+    "失误": "miss",
+    "misses": "miss",
+    "m": "miss",
+    "nmiss": "miss",
+    "n300": "great",
+    "300": "great",
+    "n100": "ok",
+    "100": "ok",
+    "n50": "meh",
+    "50": "meh",
+    "ngeki": "perfect",
+    "geki": "perfect",
+    "nkatu": "good",
+    "katu": "good",
+    "日期": "date",
+    "after": "date",
+    "since": "date",
+    "之后": "date",
+    "before": "date",
+    "until": "date",
+    "之前": "date",
+    "天数": "days",
+    "客户端": "client",
+    "cl": "client",
+    "关键词": "keyword",
+    "搜索": "keyword",
+    "q": "keyword",
+    "kw": "keyword",
+    "mod": "mods",
+    "sp": "speed",
+}
+
+
+def matches_condition_with_regex(score, key, operator, value):
+    """
+    匹配条件，支持正则与模糊搜索。
+    """
+    key = key.lower()
+    if key in {"after", "since", "之后"} and operator == "=":
+        operator = ">="
+    elif key in {"before", "until", "之前"} and operator == "=":
+        operator = "<="
+    key = map_dict.get(key, key)
+    value = value.strip().strip("\"'")
+    beatmap = getattr(score, "beatmap", None)
+    beatmapset = getattr(score, "beatmapset", None)
+    statistics = getattr(score, "statistics", None)
+
+    if key == "keyword":
+        text = " ".join(
+            str(item)
+            for item in (
+                getattr(beatmap, "title", None),
+                getattr(beatmap, "artist", None),
+                getattr(beatmap, "version", None),
+                getattr(beatmap, "creator", None),
+            )
+            if item is not None
+        )
+        return _compare_text(text, "~" if operator == "=" else operator, value)
+
+    if key == "mods":
+        actual_mods = {
+            mod.acronym.upper() for mod in (getattr(score, "mods", None) or []) if mod.acronym.upper() != "CL"
+        }
+        if "NC" in actual_mods:
+            actual_mods.discard("DT")
+        if "PF" in actual_mods:
+            actual_mods.discard("SD")
+        expected_mods = _parse_mods(value)
+        if operator == "=":
+            return actual_mods == expected_mods
+        if operator == "!=":
+            return actual_mods.isdisjoint(expected_mods)
+        if operator in {"~", "~="}:
+            return expected_mods.issubset(actual_mods)
+        return False
+
+    if key == "client":
+        value = {"l": "lazer", "s": "stable"}.get(value.lower(), value)
+        key = "score_version"
+    if key == "date":
+        ended_at = getattr(score, "ended_at", None)
+        attr = ended_at.date().isoformat() if ended_at is not None else None
+    elif key == "days":
+        ended_at = getattr(score, "ended_at", None)
+        attr = (datetime.datetime.now(ended_at.tzinfo) - ended_at).total_seconds() / 86400 if ended_at else None
+    elif key == "hours":
+        ended_at = getattr(score, "ended_at", None)
+        attr = (datetime.datetime.now(ended_at.tzinfo) - ended_at).total_seconds() / 3600 if ended_at else None
+    elif key == "fc":
+        miss = getattr(statistics, "miss", None)
+        attr = miss == 0 if miss is not None else None
+    elif key == "speed":
+        attr = 1.0
+        for mod in getattr(score, "mods", None) or []:
+            if mod.acronym not in {"DT", "NC", "HT"}:
+                continue
+            default = 0.75 if mod.acronym == "HT" else 1.5
+            try:
+                attr = float((mod.settings or {}).get("speed_change", default))
+            except (TypeError, ValueError):
+                attr = default
+            break
+    else:
+        attr = next(
+            (
+                candidate
+                for owner in (score, beatmap, beatmapset, statistics)
+                if owner is not None and (candidate := getattr(owner, key, None)) is not None
+            ),
+            None,
+        )
+    if attr is None:
+        return False
+
+    if isinstance(attr, bool):
+        expected = value.lower() in {"1", "true", "yes", "y", "是", "fc"}
+        return attr == expected if operator == "=" else attr != expected if operator == "!=" else False
+    # 正则和模糊匹配
+    if isinstance(attr, str):
+        return _compare_text(attr, operator, value)
+
+    # 数值比较
+    elif isinstance(attr, (int, float)):
+        if operator == "=" and ".." in value:
+            low_text, high_text = value.split("..", 1)
+            try:
+                low, high = sorted((_parse_number(low_text, key), _parse_number(high_text, key)))
+            except ValueError:
+                return False
+            return low <= attr <= high
+        numeric_range = re.fullmatch(r"(-?[\d.]+)-(-?[\d.]+)", value)
+        if numeric_range and operator == "=":
+            low, high = sorted(float(item) for item in numeric_range.groups())
+            return low <= attr <= high
+        try:
+            number = _parse_number(value, key)
+        except ValueError:
+            return False
+        if operator == ">":
+            return attr > number
+        elif operator == "<":
+            return attr < number
+        elif operator == ">=":
+            return attr >= number
+        elif operator == "<=":
+            return attr <= number
+        elif operator == "=":
+            return attr == number
+        elif operator == "!=":
+            return attr != number
+
+    return False
+
+
+def _parse_number(value: str, key: str) -> float:
+    value = value.strip().lower().replace(",", "").removesuffix("%").removesuffix("x")
+    multiplier = 1.0
+    if key == "total_length" and value.endswith("m"):
+        multiplier = 60.0
+        value = value[:-1]
+    elif key == "total_length" and value.endswith("s"):
+        value = value[:-1]
+    elif value.endswith("k"):
+        multiplier = 1_000.0
+        value = value[:-1]
+    elif value.endswith("w"):
+        multiplier = 10_000.0
+        value = value[:-1]
+    elif value.endswith("m"):
+        multiplier = 1_000_000.0
+        value = value[:-1]
+    return float(value) * multiplier
+
+
+def _compare_text(attr: str, operator: str, value: str) -> bool:
+    folded_attr = attr.casefold()
+    folded_value = value.casefold()
+    if operator == "=":
+        return folded_attr == folded_value
+    if operator == "!=":
+        return folded_attr != folded_value
+    if operator == ">":
+        return folded_attr > folded_value
+    if operator == "<":
+        return folded_attr < folded_value
+    if operator == ">=":
+        return folded_attr >= folded_value
+    if operator == "<=":
+        return folded_attr <= folded_value
+    if operator == "~":
+        try:
+            return re.search(value, attr, re.IGNORECASE) is not None
+        except re.error:
+            return folded_value in folded_attr
+    if operator == "~=":
+        return SequenceMatcher(None, folded_attr, folded_value).ratio() >= 0.5
+    return False
+
+
+def _parse_mods(value: str) -> set[str]:
+    compact = value.upper().replace("+", "").replace(",", "").replace("，", "").replace(" ", "")
+    if compact in {"", "NM", "NOMOD"}:
+        return set()
+    return {compact[index : index + 2] for index in range(0, len(compact), 2)}
+
+
+def filter_scores_with_regex(scores_with_index, conditions):
+    """
+    根据动态条件过滤分数列表，支持正则与模糊搜索。
+    """
+    for key, operator, value in conditions:
+        scores_with_index = [
+            score for score in scores_with_index if matches_condition_with_regex(score, key, operator, value)
+        ]
+    return scores_with_index
+
+
+def trim_text_with_ellipsis(text, max_width, font):
+    # 初始检查：空字符串或无需处理
+    bbox = font.getbbox(text)
+    text_width = bbox[2] - bbox[0]
+    if not text or text_width <= max_width:
+        return text
+    # 逐字符检查
+    ellipsis_symbol = "…"
+    ellipsis_width = font.getbbox("…")[2] - font.getbbox("…")[0]
+    # 确保最大宽度能至少容纳一个字符+省略号
+    if max_width < font.getbbox("A")[2] - font.getbbox("A")[0] + ellipsis_width:
+        return ellipsis_symbol
+
+    truncated_text = ""
+    current_width = 0
+
+    for char in text:
+        # 检查当前字符宽度 + 省略号宽度是否超标
+        char_width = font.getbbox(char)[2] - font.getbbox(char)[0]
+        if current_width + char_width + ellipsis_width > max_width:
+            break
+        truncated_text += char
+        current_width += char_width
+
+    # 返回截断后的字符串 + 省略号
+    return truncated_text + ellipsis_symbol if truncated_text else ellipsis_symbol
+
+
+# 字体描边函数
+def draw_text_with_outline(draw, position, text, font, anchor, fill):
+    for dx in [-1, 0, 1]:
+        for dy in [-1, 0, 1]:
+            if dx != 0 or dy != 0:
+                draw.text(
+                    (position[0] + dx, position[1] + dy),
+                    text,
+                    font=font,
+                    anchor=anchor,
+                    fill=(0, 0, 0, 255),
+                )
+    draw.text(position, text, font=font, anchor=anchor, fill=fill)
+
+
+async def process_user_avatar_with_gif(
+    base_image: Image.Image,
+    user_icon: Image.Image,
+    position: tuple[int, int],
+    size: tuple[int, int],
+    corner_radius: int,
+) -> BytesIO:
+    """
+    Process user avatar (static or animated) and composite it onto the base image.
+
+    Args:
+        base_image: The base image to composite the avatar onto
+        user_icon: The user avatar image (can be animated GIF or static)
+        position: (x, y) position to place the avatar on the base image
+        size: (width, height) to resize the avatar to
+        corner_radius: Radius for rounded corners
+
+    Returns:
+        BytesIO containing the final image (JPEG for static, GIF for animated)
+    """
+    if not getattr(user_icon, "is_animated", False):
+        icon_bg = user_icon.convert("RGBA").resize(size)
+        icon_img = draw_fillet(icon_bg, corner_radius)
+        base_image.alpha_composite(icon_img, position)
+        byt = BytesIO()
+        base_image.convert("RGB").save(byt, "jpeg")
+        base_image.close()
+        user_icon.close()
+        return byt
+
+    gif_frames = []
+    for gif_frame in ImageSequence.Iterator(user_icon):
+        # 将 GIF 图片中的每一帧转换为 RGBA 模式
+        gif_frame = gif_frame.convert("RGBA").resize(size)
+        gif_frame = draw_fillet(gif_frame, corner_radius)
+        # 创建一个新的 RGBA 图片，将 PNG 图片作为背景，将当前帧添加到背景上
+        rgba_frame = Image.new("RGBA", base_image.size, (0, 0, 0, 0))
+        rgba_frame.paste(base_image, (0, 0), base_image)
+        rgba_frame.paste(gif_frame, position, gif_frame)
+        # 将 RGBA 图片转换为 RGB 模式，并添加到 GIF 图片中
+        gif_frames.append(rgba_frame)
+    gif_bytes = BytesIO()
+    # 保存 GIF 图片
+    gif_frames[0].save(
+        gif_bytes,
+        format="gif",
+        save_all=True,
+        append_images=gif_frames[1:],
+        duration=user_icon.info["duration"],
+    )
+    # 输出
+    gif_frames[0].close()
+    user_icon.close()
+    return gif_bytes
+
+
+async def handle_team_image(
+    base_image: Image.Image,
+    draw_context: Optional[ImageDraw.Draw],
+    info,
+    position: tuple[int, int],
+    size: tuple[int, int],
+    text_position: Optional[tuple[int, int]] = None,
+    text_font: Optional[object] = None,
+) -> None:
+    """
+    Download and composite team flag image onto the base image, optionally drawing team name.
+
+    Args:
+        base_image: The base image to composite the team flag onto
+        draw_context: PIL ImageDraw context for drawing text (None if no text needed)
+        info: User info object containing team information
+        position: (x, y) position to place the team flag on the base image
+        size: (width, height) to resize the team flag to
+        text_position: Optional (x, y) position to draw team name text
+        text_font: Optional font for team name text
+
+    Raises:
+        NetworkError: If team image download fails
+    """
+    from ..exceptions import NetworkError
+
+    if info.team and info.team.flag_url:
+        team_path = team_cache_path / f"{info.team.id}.png"
+        if not team_path.exists():
+            team_img = await get_projectimg(info.team.flag_url)
+            with Image.open(team_img) as team_image:
+                team_image = team_image.convert("RGBA")
+                team_image.save(team_path)
+        try:
+            with Image.open(team_path) as team_img:
+                team_img = team_img.convert("RGBA").resize(size)
+                base_image.alpha_composite(team_img, position)
+        except UnidentifiedImageError:
+            team_path.unlink()
+            raise NetworkError("team 图片下载错误，请重试！")
+
+        # Draw team name if text parameters are provided
+        if draw_context and text_position and text_font and info.team.name:
+            draw_context.text(text_position, info.team.name, font=text_font, anchor="lt")
+
+
+async def load_osu_file_and_setup_template(template_path: str, beatmap_id: int, beatmapset_id: int):
+    """
+    Load OSU file and setup Jinja2 template environment.
+
+    Args:
+        template_path: Path to template directory
+        beatmap_id: Beatmap ID
+        beatmapset_id: Beatmapset ID
+
+    Returns:
+        Tuple of (osu_file_content, template_object)
+    """
+    import jinja2
+
+    path = map_path / str(beatmapset_id)
+    path.mkdir(parents=True, exist_ok=True)
+    osu = path / f"{beatmap_id}.osu"
+    if not osu.exists():
+        await download_osu(beatmapset_id, beatmap_id)
+    with open(osu, encoding="utf-8-sig") as f:
+        osu_file = f.read()
+    template_name = "pic.html"
+    template_env = jinja2.Environment(  # noqa: S701
+        loader=jinja2.FileSystemLoader(template_path),
+        enable_async=True,
+    )
+    template = template_env.get_template(template_name)
+    return osu_file, template
+
+
+def get_map_difficulty_arrays(mapinfo, original_mapinfo):
+    """
+    Extract map difficulty arrays for comparison.
+
+    Args:
+        mapinfo: Current map info with difficulty stats
+        original_mapinfo: Original map info with difficulty stats
+
+    Returns:
+        Tuple of (mapdiff, original_mapdiff) arrays with [cs, drain, accuracy, ar]
+    """
+    mapdiff = [mapinfo.cs, mapinfo.drain, mapinfo.accuracy, mapinfo.ar]
+    original_mapdiff = [
+        original_mapinfo.cs,
+        original_mapinfo.drain,
+        original_mapinfo.accuracy,
+        original_mapinfo.ar,
+    ]
+    return mapdiff, original_mapdiff

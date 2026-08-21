@@ -1,0 +1,110 @@
+"""HTMLRender 0.8 Playwright lease 上的持久页面池。"""
+
+import asyncio
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from typing import Any
+
+from nonebot.log import logger
+from nonebot_plugin_htmlrender import get_default_application
+
+_pages: dict[str, "_PersistentPage"] = {}
+_locks: dict[str, asyncio.Lock] = {}
+_closing = False
+
+
+@dataclass(slots=True)
+class _PersistentPage:
+    lease: Any
+    page: Any
+    goto_uri: str | None
+    viewport: dict
+    device_scale_factor: float
+
+
+async def _drop_page(key: str) -> None:
+    entry = _pages.pop(key, None)
+    if entry is None:
+        return
+    await entry.lease.__aexit__(None, None, None)
+
+
+async def _create_page(
+    key: str,
+    goto_uri: str | None,
+    viewport: dict,
+    device_scale_factor: float,
+):
+    app = get_default_application()
+    lease = app.extensions.playwright.page(
+        viewport=viewport,
+        device_scale_factor=device_scale_factor,
+    )
+    try:
+        page = await lease.__aenter__()
+    except BaseException:
+        # __aenter__ 失败时 context manager 尚未进入，不能调用 __aexit__。
+        # 否则 asynccontextmanager 会收到 athrow，并可能再次 yield，最终掩盖
+        # 原始 ProviderLifecycleError 为 "generator didn't stop after athrow()"。
+        raise
+    try:
+        if goto_uri:
+            await page.goto(goto_uri, wait_until="load")
+    except BaseException:
+        await lease.__aexit__(None, None, None)
+        raise
+    _pages[key] = _PersistentPage(lease, page, goto_uri, viewport.copy(), device_scale_factor)
+    return page
+
+
+@asynccontextmanager
+async def persistent_page(
+    key: str,
+    goto_uri: str | None,
+    viewport: dict,
+    device_scale_factor: float = 2,
+):
+    """复用模板页面；同一模板串行渲染，异常或参数变化时自动重建。"""
+    if _closing:
+        raise RuntimeError("Playwright 持久页面池正在关闭")
+    lock = _locks.setdefault(key, asyncio.Lock())
+    async with lock:
+        entry = _pages.get(key)
+        if entry is not None and (
+            entry.page.is_closed() or entry.goto_uri != goto_uri or entry.device_scale_factor != device_scale_factor
+        ):
+            await _drop_page(key)
+            entry = None
+        if entry is None:
+            page = await _create_page(key, goto_uri, viewport, device_scale_factor)
+        else:
+            page = entry.page
+        try:
+            if entry is not None and entry.viewport != viewport:
+                await page.set_viewport_size(viewport)
+                entry.viewport = viewport.copy()
+            yield page
+        except BaseException:
+            await _drop_page(key)
+            raise
+
+
+async def close_persistent_pages() -> None:
+    """在 HTMLRender Application 关闭前释放所有长期持有的页面 lease。"""
+    global _closing
+    _closing = True
+    for key in list(_pages):
+        lock = _locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            try:
+                await asyncio.wait_for(_drop_page(key), timeout=5.0)
+            except asyncio.TimeoutError:
+                logger.warning(f"关闭 Playwright 持久页面超时(5s)，已跳过: {key}")
+            except Exception as e:
+                error_msg = str(e)
+                if "Connection closed" in error_msg or "Target closed" in error_msg:
+                    logger.debug(
+                        f"关闭页面 {key} 时浏览器驱动连接已断开（关闭阶段预期行为）: {error_msg}"
+                    )
+                else:
+                    logger.warning(f"关闭 Playwright 持久页面失败: {key} | {error_msg}")

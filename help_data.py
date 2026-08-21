@@ -1,0 +1,177 @@
+from __future__ import annotations
+
+
+HELP_TOPICS = {
+    "overview": (
+        "OSUBot 指令帮助\n"
+        "先使用 /bind <用户名、UID或主页链接> 绑定账号，再用 /info、/bp、/bl、/rl 等指令查询。\n"
+        "通用格式：/命令 [玩家] [序号或范围]:[模式] [+Mods] [&sb]\n"
+        "模式简称：o=osu!、t=taiko、c=catch、m=mania。\n"
+        "可继续询问：绑定、模式、成绩、谱面、资料、多人、SB服，或“全部指令”。"
+    ),
+    "bind": (
+        "账号绑定\n"
+        "/bind <用户名、UID或主页链接>：绑定 osu! 账号\n"
+        "/unbind：解除绑定\n"
+        "示例：/bind peppy、/bind id:2、/bind https://osu.ppy.sh/users/2\n"
+        "纯数字用户名会优先按用户名查找；需要明确使用 UID 时写 id:<UID>。"
+    ),
+    "mode": (
+        "模式设置\n"
+        "/mode：查看当前默认模式\n"
+        "/mode <模式>：修改默认模式，例如 /mode m\n"
+        "简称：o/0=osu!，t/1=taiko，c/2=catch，m/3=mania。\n"
+        "临时指定模式可写 /info:m、/bl:c；未指定时使用绑定账号的默认模式。\n"
+        "官网成绩查询默认包含 lazer 与 stable 成绩，无需切换；成绩图会逐条标注来源。"
+    ),
+    "score": (
+        "成绩查询\n"
+        "/bp [序号]：单条最佳成绩，例如 /bp 5\n"
+        "/bl [起始-结束]：BP 列表，默认 1-30，例如 /bl 31-60\n"
+        "/re [序号]、/rl [范围]：单条/列表最近游玩，包含未通过\n"
+        "/pr [序号]、/pl [范围]：单条/列表最近通过成绩\n"
+        "/sc [mapid]：指定谱面成绩；查询过谱面后可省略 mapid\n"
+        "/sl [mapid] [范围]：该谱面各 Mod 组合的最佳成绩列表\n"
+        "/nb [#天数]：最近新增 BP；/bpa：BP 分析；/hs [#天数]：PP/排名历史\n"
+        "可附加玩家、模式和 Mods，例如 /bp peppy 5:o +HDHR。\n"
+        "BP 列表支持组合筛选：pp、acc、星数、长度、bpm、谱师、标题、难度名、miss、rank、客户端等。\n"
+        '示例：/bl pp>=300 acc>=98 星数=5..7；/bl 标题~"Freedom Dive" mods!=HD。\n'
+        "比较符支持 >、>=、<、<=、=、!=；文本用 ~ 搜索、~= 模糊匹配，带空格时加引号。\n"
+        "常用简写：p=pp、a=acc、s=星数、m=miss、c=combo、b=bpm、len=长度、mp=谱师、t=标题、v=难度名。\n"
+        "快速写法：300pp+、98a+、5-7*、7d、24h、fc、nofc、-DT、=HDHR。\n"
+        "+HDHR 表示包含 Mods；mods=HDHR 表示完全一致；mods!=HD 表示排除；+NM 查询无玩法 Mod 成绩。"
+    ),
+    "map": (
+        "谱面工具\n"
+        "/m [mapid] [+Mods]：单张难度信息\n"
+        "/bm [setid]：谱面集信息\n"
+        "/sc [mapid]：查询玩家在谱面上的成绩\n"
+        "/bg [mapid]：获取背景\n"
+        "/预览 [mapid]:[模式]：生成普通预览图\n"
+        "/预览 [mapid] +gif：生成约 10 秒的动态预览\n"
+        "/完整预览 [mapid]：生成完整预览图片；/vp [mapid]：生成完整预览视频\n"
+        "/dl [setid]：下载谱面集；/倍速、/反键：谱面转换\n"
+        "支持 osu! 谱面链接。先查询一张谱面后，/m、/bm、/sc、/bg、/预览、/dl 等可省略 ID，复用最近谱面。\n"
+        "非 std 谱面会自动使用原生模式，不能强制转成其他模式。完整视频渲染可能需要等待。"
+    ),
+    "profile": (
+        "账号资料与设置\n"
+        "/info [玩家]:[模式]：玩家资料\n"
+        "/mu：已绑定玩家主页与头像；/update：刷新个人信息缓存\n"
+        "/rank：群内 PP 排名；/推荐：个性化谱面推荐"
+    ),
+    "friend": (
+        "好友与互关\n"
+        "使用 /bind 绑定后，回复中会附带 osu! OAuth 授权链接（查询好友需先授权，每个绑定账号各自授权）\n"
+        "/f：查看自己的全部好友列表（/friend，无条数上限）\n"
+        "/f :pp：按 PP 排序（:acc/:pc/:pt/:th/:t/:u/:c/:n/:o/:m，后缀 +/2 升序、- 降序）\n"
+        "/f 1-30：查看第 1-30 位好友；/f pp>=300 mutual=true：组合筛选\n"
+        "/f <玩家名>：查询与对方是否互关（mutual，双方都授权时最准确）\n"
+        "若回调地址不可达，授权后把地址栏 code 发给机器人：/frbind <code>"
+    ),
+    "game": (
+        "多人和其他功能\n"
+        "/mp <match id/room id>：查看多人比赛结果 (/match & /room)；/rt <match id/room id>：计算多人比赛 rating (/rating)\n"
+        "⚠ 注意：Stable 用 matchid，Lazer 用 roomid\n该指令请求量较大，请勿频繁调用\n"
+        "/md <成就名>：查询成就达成方式（/medal）\n"
+        "/myach [模式]：查看自己已获得的成就（/我的成就，输出图片）\n"
+        "/achrec [模式]：根据已获得成就推荐未获得成就（/成就推荐，图片+攻略）\n"
+        "/音频猜歌、/图片猜歌、/谱面猜歌：开始猜歌游戏"
+    ),
+    "sb": (
+        "ppysb 服务器查询\n"
+        "/sbbind <玩家>：绑定 ppysb；/sbunbind：解除绑定\n"
+        "在普通查询末尾添加 &sb，例如 /info &sb、/bl:4 &sb、/rl:5 &sb、/sc <mapid>:6 &sb。\n"
+        "模式 0/1/2/3：std/taiko/catch/mania；4/5/6：RX std/taiko/catch；8：AP std。"
+    ),
+}
+
+TOPIC_ALIASES = {
+    "help": "overview",
+    "帮助": "overview",
+    "概览": "overview",
+    "绑定": "bind",
+    "账号": "bind",
+    "模式": "mode",
+    "成绩": "score",
+    "bp": "score",
+    "bl": "score",
+    "bplist": "score",
+    "pfm": "score",
+    "re": "score",
+    "recent": "score",
+    "最近": "score",
+    "rl": "score",
+    "pr": "score",
+    "pl": "score",
+    "score": "score",
+    "sc": "score",
+    "sl": "score",
+    "scorelist": "score",
+    "scorehistory": "score",
+    "历史成绩": "score",
+    "nb": "score",
+    "tbp": "score",
+    "bpa": "score",
+    "bp分析": "score",
+    "hs": "score",
+    "history": "score",
+    "谱面": "map",
+    "地图": "map",
+    "beatmap": "map",
+    "m": "map",
+    "bm": "map",
+    "bmap": "map",
+    "bg": "map",
+    "getbg": "map",
+    "dl": "map",
+    "osudl": "map",
+    "预览": "map",
+    "preview": "map",
+    "完整预览": "map",
+    "视频预览": "map",
+    "vp": "map",
+    "资料": "profile",
+    "设置": "profile",
+    "用户": "profile",
+    "info": "profile",
+    "mu": "profile",
+    "rank": "profile",
+    "推荐": "profile",
+    "好友": "friend",
+    "互关": "friend",
+    "friends": "friend",
+    "friend": "friend",
+    "frbind": "friend",
+    "多人": "game",
+    "比赛": "game",
+    "match": "game",
+    "游戏": "game",
+    "mp": "game",
+    "rating": "game",
+    "rt": "game",
+    "medal": "game",
+    "md": "game",
+    "myach": "game",
+    "我的成就": "game",
+    "achrec": "game",
+    "成就推荐": "game",
+    "推荐成就": "game",
+    "ppysb": "sb",
+    "sb服": "sb",
+    "sbbind": "sb",
+    "sbunbind": "sb",
+}
+
+TOPIC_LABELS = "概览、绑定、模式、成绩、谱面、资料、好友、多人、SB服、全部"
+
+
+def get_command_help(topic: str | None = "overview") -> str:
+    """Return exact manual command help for matchers and LLM tools."""
+    normalized = (topic or "overview").strip().lower().lstrip("/")
+    normalized = TOPIC_ALIASES.get(normalized, normalized)
+    if normalized in {"all", "全部", "完整", "所有指令"}:
+        return "\n\n".join(HELP_TOPICS[name] for name in HELP_TOPICS if name != "overview")
+    if normalized in HELP_TOPICS:
+        return HELP_TOPICS[normalized]
+    return f"没有找到该帮助主题。可用主题：{TOPIC_LABELS}。"
