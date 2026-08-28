@@ -568,8 +568,10 @@ async def get_user_info_data(uid: Union[int, str], mode: str, source: str = "osu
         return info_data
 
     elif source == "g0v0":
+        # g0v0 的 /users/{id} 端点不带 mode 参数（只返回用户主模式统计），
+        # 需使用官方格式的 /users/{id}/{ruleset} 获取指定模式的资料。
         g0v0_mode = G0V0_MODE.get(mode, mode)
-        url = f"{g0v0_api}/users/{uid}?mode={g0v0_mode}"
+        url = f"{g0v0_api}/users/{uid}/{g0v0_mode}"
         data = await g0v0_make_request(url, "未找到该玩家，请确认玩家ID")
         return UnifiedUser(**data)
 

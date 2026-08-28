@@ -64,6 +64,9 @@ class G0v0UserData(Model):
     user_id: Mapped[str] = mapped_column(Text, index=True)
     osu_id: Mapped[int] = mapped_column(Integer)
     osu_name: Mapped[str] = mapped_column(Text)
+    # g0v0 独立默认模式（0-8，SB 风格：4=RX std 5=RX taiko 6=RX catch 8=AP std），
+    # 与官方绑定的默认模式互不影响；/mode:4 &gu 修改。
+    osu_mode: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class ScoreHistoryData(Model):
